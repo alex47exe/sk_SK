@@ -3394,7 +3394,9 @@ SK_BeginBufferSwapEx (BOOL bWaitOnFail)
 
   if (SK_Steam_PiratesAhoy () && (! SK_ImGui_Active ()))
   {
+    /* --- shhh
     SK_ImGui_Toggle ();
+    */
   }
 
   LastKnownAPI =

@@ -4345,10 +4345,10 @@ SK_ImGui_ControlPanel (void)
         ImGui::TreePush ("###HelpSubmenu");
         {
 #if 0
-          if (ImGui::MenuItem (R"("Kaldaien's Mod")", "Discourse Forums", &selected, true))
+          if (ImGui::MenuItem (R"("YouKnowWho's Mod")", "Discourse Forums", &selected, true))
             SK_SteamOverlay_GoToURL ("https://discourse.differentk.fyi/", true);
 #else
-          if (ImGui::MenuItem (R"("Kaldaien's Mod")", "Discord Server", &selected, true))
+          if (ImGui::MenuItem (R"("YouKnowWho's Mod")", "Discord Server", &selected, true))
             SK_SteamOverlay_GoToURL ("https://discord.gg/SpecialK", true);
 #endif
         }

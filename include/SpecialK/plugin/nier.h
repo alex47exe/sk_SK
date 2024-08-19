@@ -1,5 +1,5 @@
 //
-// Copyright 2017  Andon  "Kaldaien" Coleman,
+// Copyright 2017  No "Redacted" Name,
 //                 Niklas "DrDaxxy"  Kielblock,
 //                 Peter  "Durante"  Thoman
 //
