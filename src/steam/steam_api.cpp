@@ -1,4 +1,4 @@
-﻿/**
+/**
 * This file is part of Special K.
 *
 * Special K is free software : you can redistribute it
@@ -5438,7 +5438,8 @@ static HANDLE hSigNewSteamFileDetails {
   INVALID_HANDLE_VALUE
 };
 
-
+#pragma warning(push)
+#pragma warning(disable: 4100)
 void
 SK_SteamAPIContext::OnFileDetailsDone ( FileDetailsResult_t* pParam,
                                         bool                 bFailed )
@@ -5650,7 +5651,8 @@ SK_SteamAPIContext::OnFileDetailsDone ( FileDetailsResult_t* pParam,
 
   get_file_details.Cancel ();
 }
-
+#pragma warning(pop)
+ 
 void
 SK_Steam_SignalEmulatedXInputActivity (DWORD dwSlot, bool blocked)
 {
