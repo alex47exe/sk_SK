@@ -313,8 +313,8 @@ SK_HDR_ConvertImageToPNG (const DirectX::Image& raw_hdr_img, DirectX::ScratchIma
         if (typeless_fmt == DXGI_FORMAT_R16G16B16A16_TYPELESS ||
             typeless_fmt == DXGI_FORMAT_R32G32B32A32_TYPELESS)
         {
-          XMVECTOR  value = XMVector3Transform (v, c_from709to2020);
-                        v = LinearToPQ (value);
+          XMVECTOR nvalue = XMVector3Transform (v, c_from709to2020);
+                        v = LinearToPQ (XMVectorClamp (nvalue, g_XMZero, g_XMInfinity));
         }
 
         v = // Quantize to 10- or 12-bpc before expanding to 16-bpc in order to improve
@@ -948,8 +948,7 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
 
           for (size_t j = 0; j < width; ++j)
           {
-            DirectX::XMVECTOR v =
-              XMVectorSaturate (*pixels++);
+            DirectX::XMVECTOR v = *pixels++;
 
             *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetX (v) * 1023.0f));
             *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetY (v) * 1023.0f));
@@ -1018,8 +1017,10 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
 
           for (size_t j = 0; j < width; ++j)
           {
-            XMVECTOR  value = XMVector3Transform (pixels [j], c_from709to2020);
-                      value = XMVectorSaturate (LinearToPQ (value));
+            XMVECTOR value = pixels [j];
+
+            value = XMVector3Transform (XMVectorDivide   (value, PQ.MaxPQ), c_from709to2020);
+            value =         LinearToPQ (XMVectorSaturate (value));
 
             *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetX (value) * 65535.0f));
             *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetY (value) * 65535.0f));
@@ -1044,7 +1045,7 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
       encoder->qualityAlpha    = config.screenshots.compression_quality; // N/A?
       encoder->timescale       = 1;
       encoder->repetitionCount = AVIF_REPETITION_COUNT_INFINITE;
-      encoder->maxThreads      = config.screenshots.avif.max_threads;
+      encoder->maxThreads      = config.screenshots.avif.max_threads * 4;
       encoder->speed           = config.screenshots.avif.compression_speed;
       encoder->minQuantizer    = AVIF_QUANTIZER_BEST_QUALITY;
       encoder->maxQuantizer    = AVIF_QUANTIZER_BEST_QUALITY;
@@ -1633,10 +1634,10 @@ SK_HDR_CalculateContentLightInfo (const DirectX::Image& img)
     return ret;
   };
 
-  float N          = 0.0f;
-  float fLumAccum  = 0.0f;
-  XMVECTOR vMaxLum = g_XMZero;
-  XMVECTOR vMinLum = g_XMInfinity;
+  float N         =       0.0f;
+  float fLumAccum =       0.0f;
+  float fMaxLum   =       0.0f;
+  float fMinLum   = 5240320.0f;
 
   EvaluateImage ( img,
     [&](const XMVECTOR* pixels, size_t width, size_t y)
@@ -1659,13 +1660,16 @@ SK_HDR_CalculateContentLightInfo (const DirectX::Image& img)
                 PQToLinear (XMVectorSaturate (v)), c_from2020toXYZ
               );
 
-            vMaxLum =
-              XMVectorMax (vMaxLum, v);
+            const float fLum =
+              XMVectorGetY (v);
 
-            vMinLum =
-              XMVectorMin (vMinLum, v);
+            fMaxLum =
+              std::max (fMaxLum, fLum);
 
-            fScanlineLum += XMVectorGetY (v);
+            fMinLum =
+              std::min (fMinLum, fLum);
+
+            fScanlineLum += fLum;
           }
         } break;
 
@@ -1680,13 +1684,16 @@ SK_HDR_CalculateContentLightInfo (const DirectX::Image& img)
             v =
               XMVector3Transform (v, c_from709toXYZ);
 
-            vMaxLum =
-              XMVectorMax (vMaxLum, v);
+            const float fLum =
+              XMVectorGetY (v);
 
-            vMinLum =
-              XMVectorMin (vMinLum, v);
+            fMaxLum =
+              std::max (fMaxLum, fLum);
 
-            fScanlineLum += XMVectorGetY (v);
+            fMinLum =
+              std::min (fMinLum, fLum);
+
+            fScanlineLum += fLum;
           }
         } break;
 
@@ -1702,12 +1709,15 @@ SK_HDR_CalculateContentLightInfo (const DirectX::Image& img)
 
   if (N > 0.0)
   {
-    const float fLumRange =
-      XMVectorGetY (vMaxLum) -
-      XMVectorGetY (vMinLum);
+    // 0 nits - 10k nits (appropriate for screencap, but not HDR photography)
+    fMinLum = std::clamp (fMinLum, 0.0f,    125.0f);
+    fMaxLum = std::clamp (fMaxLum, fMinLum, 125.0f);
 
-    auto        luminance_freq = std::make_unique <uint32_t []> (16384);
-    ZeroMemory (luminance_freq.get (),     sizeof (uint32_t)  *  16384);
+    const float fLumRange =
+            (fMaxLum - fMinLum);
+
+    auto        luminance_freq = std::make_unique <uint32_t []> (65536);
+    ZeroMemory (luminance_freq.get (),     sizeof (uint32_t)  *  65536);
 
     EvaluateImage ( img,
     [&](const XMVECTOR* pixels, size_t width, size_t y)
@@ -1724,9 +1734,9 @@ SK_HDR_CalculateContentLightInfo (const DirectX::Image& img)
         luminance_freq [
           std::clamp ( (int)
             std::roundf (
-              (XMVectorGetY (v) - XMVectorGetY (vMinLum)) /
-                                               (fLumRange / 16384.0f) ),
-                                                         0, 16383 ) ]++;
+              (XMVectorGetY (v) - fMinLum)     /
+                                    (fLumRange / 65536.0f) ),
+                                              0, 65535 ) ]++;
       }
     });
 
@@ -1734,24 +1744,24 @@ SK_HDR_CalculateContentLightInfo (const DirectX::Image& img)
     const double img_size = (double)img.width *
                             (double)img.height;
 
-    for (auto i = 16383; i >= 0; --i)
+    for (auto i = 65535; i >= 0; --i)
     {
       percent -=
         100.0 * ((double)luminance_freq [i] / img_size);
 
-      if (percent <= 99.825)
+      if (percent <= 99.9)
       {
-        vMaxLum =
-          XMVectorReplicate (XMVectorGetY (vMinLum) + (fLumRange * ((float)i / 16384.0f)));
+        fMaxLum =
+          fMinLum + (fLumRange * ((float)i / 65536.0f));
 
         break;
       }
     }
 
     SK_PNG_SetUint32 (clli.max_cll,
-      static_cast <uint32_t> ((80.0f * XMVectorGetY (vMaxLum)) / 0.0001f));
+      static_cast <uint32_t> ((80.0f *          fMaxLum) / 0.0001f));
     SK_PNG_SetUint32 (clli.max_fall,
-      static_cast <uint32_t> ((80.0f * (fLumAccum / N))        / 0.0001f));
+      static_cast <uint32_t> ((80.0f * (fLumAccum / N))  / 0.0001f));
   }
 
   return clli;
