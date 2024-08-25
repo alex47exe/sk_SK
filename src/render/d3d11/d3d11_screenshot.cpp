@@ -1197,9 +1197,10 @@ DirectX::XMVECTOR Rec709toICtCp (DirectX::XMVECTOR N)
   return
     XMVector3Transform (
       LinearToPQ (
+        XMVectorMax (g_XMZero,
         XMVector3Transform (
         XMVector3Transform (N, c_from709toXYZ), c_fromXYZtoLMS)
-                 ), ConvMat
+                 )), ConvMat
     );
 };
 
@@ -1292,6 +1293,15 @@ SK_D3D11_ProcessScreenshotQueueEx ( SK_ScreenshotStage stage_,
                                     bool               wait,
                                     bool               purge)
 {
+  static std::atomic_int run_count = 0;
+
+  if (stage_ != SK_ScreenshotStage::_FlushQueue)
+    ++run_count;
+
+  else if (run_count == 0)
+    return;
+
+
   const SK_RenderBackend& rb =
     SK_GetCurrentRenderBackend ();
 
@@ -1705,7 +1715,7 @@ SK_D3D11_ProcessScreenshotQueueEx ( SK_ScreenshotStage stage_,
                     percent -=
                       100.0 * ((double)luminance_freq [i] / img_size);
 
-                    if (percent <= 99.9)
+                    if (percent <= 99.975)
                     {
                       maxLum =
                         minLum + (fLumRange * ((float)i / 65536.0f));
@@ -2209,9 +2219,15 @@ SK_D3D11_ProcessScreenshotQueueEx ( SK_ScreenshotStage stage_,
                                                                                     static_cast <uint16_t> (std::max (0.0f, pFrameData->hdr.avg_cll_nits)));
                       }
 
+                      if (hdr && config.screenshots.use_jxl)
+                      {
+                        SK_Screenshot_SaveJXL (un_srgb, wszAbsolutePathToLossless);
+                      }
+
                       HRESULT hrSaveToWIC = S_OK;
 
-                      if ((! hdr) || (! config.screenshots.use_avif))
+                      if ((! hdr) || (! (config.screenshots.use_avif ||
+                                         config.screenshots.use_jxl)))
                       {
                         const bool bUseCompatHacks =
                           config.screenshots.compatibility_mode;

@@ -279,10 +279,10 @@ SK_HDR_ConvertImageToPNG (const DirectX::Image& raw_hdr_img, DirectX::ScratchIma
     {
       UNREFERENCED_PARAMETER(y);
 
-      static const XMVECTOR pq_range_10bpc = XMVectorReplicate (1023.0f),
-                            pq_range_12bpc = XMVectorReplicate (4095.0f),
-                            pq_range_16bpc = XMVectorReplicate (65535.0f),
-                            pq_range_32bpc = XMVectorReplicate (4294967295.0f);
+      static const XMVECTOR pq_range_10bpc = XMVectorReplicate (1024.0f),
+                            pq_range_12bpc = XMVectorReplicate (4096.0f),
+                            pq_range_16bpc = XMVectorReplicate (65536.0f),
+                            pq_range_32bpc = XMVectorReplicate (4294967296.0f);
 
       auto pq_range_out =
         (typeless_fmt == DXGI_FORMAT_R10G10B10A2_TYPELESS)  ? pq_range_10bpc :
@@ -313,8 +313,8 @@ SK_HDR_ConvertImageToPNG (const DirectX::Image& raw_hdr_img, DirectX::ScratchIma
         if (typeless_fmt == DXGI_FORMAT_R16G16B16A16_TYPELESS ||
             typeless_fmt == DXGI_FORMAT_R32G32B32A32_TYPELESS)
         {
-          XMVECTOR nvalue = XMVector3Transform (v, c_from709to2020);
-                        v = LinearToPQ (XMVectorClamp (nvalue, g_XMZero, g_XMInfinity));
+          v =
+            LinearToPQ (XMVectorMax (XMVector3Transform (v, c_from709to2020), g_XMZero));
         }
 
         v = // Quantize to 10- or 12-bpc before expanding to 16-bpc in order to improve
@@ -950,9 +950,9 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
           {
             DirectX::XMVECTOR v = *pixels++;
 
-            *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetX (v) * 1023.0f));
-            *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetY (v) * 1023.0f));
-            *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetZ (v) * 1023.0f));
+            *(rgb_pixels++) = static_cast <uint16_t> (std::min (1023, static_cast <int> (XMVectorGetX (v) * 1024.0f)));
+            *(rgb_pixels++) = static_cast <uint16_t> (std::min (1023, static_cast <int> (XMVectorGetY (v) * 1024.0f)));
+            *(rgb_pixels++) = static_cast <uint16_t> (std::min (1023, static_cast <int> (XMVectorGetZ (v) * 1024.0f)));
           }
         } );
       } break;
@@ -984,21 +984,27 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
           0.0f,                0.0f,                0.0f,                1.0f
         };
 
-        auto LinearToPQ = [](XMVECTOR N)
+        auto LinearToPQ = [](DirectX::XMVECTOR N, DirectX::XMVECTOR maxPQValue = XMVectorReplicate (125.0))
         {
+          using namespace DirectX;
+        
           XMVECTOR ret;
-
+          XMVECTOR sign =
+            XMVectorSet (XMVectorGetX (N) < 0.0f ? -1.0f : 1.0f,
+                         XMVectorGetY (N) < 0.0f ? -1.0f : 1.0f,
+                         XMVectorGetZ (N) < 0.0f ? -1.0f : 1.0f, 1.0f);
+        
           ret =
-            XMVectorPow (N, PQ.N);
-
+            XMVectorPow (XMVectorDivide (XMVectorAbs (N), maxPQValue), PQ.N);
+        
           XMVECTOR nd =
             XMVectorDivide (
                XMVectorAdd (  PQ.C1, XMVectorMultiply (PQ.C2, ret)),
                XMVectorAdd (g_XMOne, XMVectorMultiply (PQ.C3, ret))
             );
-
+        
           return
-            XMVectorPow (nd, PQ.M);
+            XMVectorMultiply (XMVectorPow (nd, PQ.M), sign);
         };
 
         uint16_t* rgb_pixels = (uint16_t *)rgb.pixels;
@@ -1006,7 +1012,6 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
         DirectX::ScratchImage
           hdr10_img;
           hdr10_img.InitializeFromImage (*src_image.GetImages ());
-
 
         EvaluateImage ( src_image.GetImages     (),
                         src_image.GetImageCount (),
@@ -1019,12 +1024,12 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
           {
             XMVECTOR value = pixels [j];
 
-            value = XMVector3Transform (XMVectorDivide   (value, PQ.MaxPQ), c_from709to2020);
-            value =         LinearToPQ (XMVectorSaturate (value));
+            value =
+              LinearToPQ (XMVectorMax (XMVector3Transform (value, c_from709to2020), g_XMZero));
 
-            *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetX (value) * 65535.0f));
-            *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetY (value) * 65535.0f));
-            *(rgb_pixels++) = static_cast <uint16_t> (roundf (XMVectorGetZ (value) * 65535.0f));
+            *(rgb_pixels++) = static_cast <uint16_t> (std::min (65535, static_cast <int> (XMVectorGetX (value) * 65536.0f)));
+            *(rgb_pixels++) = static_cast <uint16_t> (std::min (65535, static_cast <int> (XMVectorGetY (value) * 65536.0f)));
+            *(rgb_pixels++) = static_cast <uint16_t> (std::min (65535, static_cast <int> (XMVectorGetZ (value) * 65536.0f)));
           }
         } );
       } break;
@@ -1045,7 +1050,7 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
       encoder->qualityAlpha    = config.screenshots.compression_quality; // N/A?
       encoder->timescale       = 1;
       encoder->repetitionCount = AVIF_REPETITION_COUNT_INFINITE;
-      encoder->maxThreads      = config.screenshots.avif.max_threads * 4;
+      encoder->maxThreads      = config.screenshots.avif.max_threads;
       encoder->speed           = config.screenshots.avif.compression_speed;
       encoder->minQuantizer    = AVIF_QUANTIZER_BEST_QUALITY;
       encoder->maxQuantizer    = AVIF_QUANTIZER_BEST_QUALITY;
@@ -1091,6 +1096,407 @@ SK_Screenshot_SaveAVIF (DirectX::ScratchImage &src_image, const wchar_t *wszFile
 
   return
     ( encodeResult == AVIF_RESULT_OK );
+}
+
+#include <jxl/codestream_header.h>
+#include <jxl/encode.h>
+#include <jxl/encode_cxx.h>
+#include <jxl/resizable_parallel_runner.h>
+#include <jxl/resizable_parallel_runner_cxx.h>
+#include <jxl/thread_parallel_runner.h>
+#include <jxl/thread_parallel_runner_cxx.h>
+#include <jxl/types.h>
+
+static HMODULE hModJXL        = nullptr;
+static HMODULE hModJXLCMS     = nullptr;
+static HMODULE hModJXLThreads = nullptr;
+
+bool isJXLEncoderAvailable (void)
+{
+  SK_RunOnce (
+  {
+    static const wchar_t* wszPluginArch =
+      SK_RunLHIfBitness ( 64, LR"(x64\)",
+                              LR"(x86\)" );
+
+    std::filesystem::path path_to_codecs =
+      SK_GetPlugInDirectory (SK_PlugIn_Type::ThirdParty);
+
+    std::error_code                              ec;
+    if (std::filesystem::exists (path_to_codecs, ec))
+    {
+      path_to_codecs /= LR"(Image Codecs\libjxl)";
+      path_to_codecs /= wszPluginArch;
+
+      std::filesystem::create_directories
+                                  (path_to_codecs, ec);
+      if (std::filesystem::exists (path_to_codecs, ec))
+      {
+        std::filesystem::path path_to_jxl_threads = path_to_codecs / L"jxl_threads.dll";
+        std::filesystem::path path_to_jxl_cms     = path_to_codecs / L"jxl_cms.dll";
+        std::filesystem::path path_to_jxl         = path_to_codecs / L"jxl.dll";
+
+        // JXL depends on CMS to be loaded first
+
+        hModJXLThreads = LoadLibraryW (path_to_jxl_threads.c_str ());
+        hModJXLCMS     = LoadLibraryW (path_to_jxl_cms.    c_str ());
+        hModJXL        = LoadLibraryW (path_to_jxl.        c_str ());
+
+        if ( hModJXL        != nullptr &&
+             hModJXLCMS     != nullptr &&
+             hModJXLThreads != nullptr )
+        {
+          //SK_LOGi0 ("Loaded JPEG XL DLLs from: %ws", path_to_sk.c_str ());
+          return true;
+        }
+      }
+    }
+
+    if (hModJXLThreads == nullptr) hModJXLThreads = LoadLibraryW (L"jxl_threads.dll");
+    if (hModJXLCMS     == nullptr) hModJXLCMS     = LoadLibraryW (L"jxl_cms.dll");
+    if (hModJXL        == nullptr) hModJXL        = LoadLibraryW (L"jxl.dll");
+
+    if ( hModJXL        != nullptr &&
+         hModJXLCMS     != nullptr &&
+         hModJXLThreads != nullptr )
+    {
+      //SK_LOGi0 ("Loaded JPEG XL DLLs from default DLL search path");
+      return true;
+    }
+  });
+
+  const bool supported =
+    ( hModJXL        != nullptr &&
+      hModJXLThreads != nullptr &&
+      hModJXLCMS     != nullptr );
+
+  return supported;
+}
+
+static const DirectX::XMVECTOR g_MaxPQValue =
+  DirectX::XMVectorReplicate (125.0f);
+
+struct ParamsPQ
+{
+  XMVECTOR N, M;
+  XMVECTOR C1, C2, C3;
+  XMVECTOR MaxPQ;
+};
+
+static const ParamsPQ PQ =
+{
+  XMVectorReplicate (2610.0 / 4096.0 / 4.0),   // N
+  XMVectorReplicate (2523.0 / 4096.0 * 128.0), // M
+  XMVectorReplicate (3424.0 / 4096.0),         // C1
+  XMVectorReplicate (2413.0 / 4096.0 * 32.0),  // C2
+  XMVectorReplicate (2392.0 / 4096.0 * 32.0),  // C3
+  XMVectorReplicate (125.0),
+};
+
+static auto PQToLinear = [](DirectX::XMVECTOR N, DirectX::XMVECTOR maxPQValue = g_MaxPQValue)
+{
+using namespace DirectX;
+
+  XMVECTOR ret;
+
+  XMVECTOR sign =
+    XMVectorSet (XMVectorGetX (N) < 0.0f ? -1.0f : 1.0f,
+                 XMVectorGetY (N) < 0.0f ? -1.0f : 1.0f,
+                 XMVectorGetZ (N) < 0.0f ? -1.0f : 1.0f, 1.0f);
+
+  ret =
+    XMVectorPow (XMVectorAbs (N), XMVectorDivide (g_XMOne, PQ.M));
+
+  XMVECTOR nd;
+
+  nd =
+    XMVectorDivide (
+      XMVectorMax (XMVectorSubtract (ret, PQ.C1), g_XMZero),
+                   XMVectorSubtract (     PQ.C2,
+            XMVectorMultiply (PQ.C3, ret)));
+
+  ret =
+    XMVectorMultiply (XMVectorMultiply (XMVectorPow (nd, XMVectorDivide (g_XMOne, PQ.N)), maxPQValue), sign);
+
+  return ret;
+};
+
+bool
+SK_Screenshot_SaveJXL (DirectX::ScratchImage &src_image, const wchar_t *wszFilePath)
+{
+  extern bool isJXLEncoderAvailable (void);
+  if (!       isJXLEncoderAvailable ())
+    return false;
+
+  using JxlEncoderCreate_pfn                               = JxlEncoder*              (*)(const JxlMemoryManager* memory_manager);
+  using JxlEncoderDestroy_pfn                              = void                     (*)(JxlEncoder* enc);
+  using JxlEncoderCloseInput_pfn                           = void                     (*)(JxlEncoder* enc);
+  using JxlEncoderProcessOutput_pfn                        = JxlEncoderStatus         (*)(JxlEncoder* enc, uint8_t** next_out, size_t* avail_out);
+  using JxlEncoderFrameSettingsCreate_pfn                  = JxlEncoderFrameSettings* (*)(JxlEncoder* enc, const JxlEncoderFrameSettings* source);
+  using JxlEncoderInitBasicInfo_pfn                        = void                     (*)(JxlBasicInfo* info);
+  using JxlEncoderSetBasicInfo_pfn                         = JxlEncoderStatus         (*)(JxlEncoder* enc, const JxlBasicInfo* info);
+  using JxlEncoderAddImageFrame_pfn                        = JxlEncoderStatus         (*)(const JxlEncoderFrameSettings* frame_settings, const JxlPixelFormat* pixel_format, const void* buffer, size_t size);
+  using JxlEncoderSetColorEncoding_pfn                     = JxlEncoderStatus         (*)(JxlEncoder* enc, const JxlColorEncoding* color);
+  using JxlEncoderFrameSettingsSetOption_pfn               = JxlEncoderStatus         (*)(JxlEncoderFrameSettings *frame_settings, JxlEncoderFrameSettingId option, int64_t value);
+  using JxlEncoderSetParallelRunner_pfn                    = JxlEncoderStatus         (*)(JxlEncoder* enc, JxlParallelRunner parallel_runner, void* parallel_runner_opaque);
+
+  using JxlThreadParallelRunner_pfn                        = JxlParallelRetCode       (*)(void* runner_opaque, void* jpegxl_opaque, JxlParallelRunInit init, JxlParallelRunFunction func, uint32_t start_range, uint32_t end_range);
+  using JxlThreadParallelRunnerCreate_pfn                  = void*                    (*)(const JxlMemoryManager* memory_manager, size_t num_worker_threads);
+  using JxlThreadParallelRunnerDestroy_pfn                 = void                     (*)(void* runner_opaque);
+  using JxlThreadParallelRunnerDefaultNumWorkerThreads_pfn = size_t                   (*)(void);
+
+  static JxlEncoderCreate_pfn                 jxlEncoderCreate                 = (JxlEncoderCreate_pfn)                GetProcAddress (hModJXL, "JxlEncoderCreate");
+  static JxlEncoderDestroy_pfn                jxlEncoderDestroy                = (JxlEncoderDestroy_pfn)               GetProcAddress (hModJXL, "JxlEncoderDestroy");
+  static JxlEncoderCloseInput_pfn             jxlEncoderCloseInput             = (JxlEncoderCloseInput_pfn)            GetProcAddress (hModJXL, "JxlEncoderCloseInput");
+  static JxlEncoderProcessOutput_pfn          jxlEncoderProcessOutput          = (JxlEncoderProcessOutput_pfn)         GetProcAddress (hModJXL, "JxlEncoderProcessOutput");
+  static JxlEncoderFrameSettingsCreate_pfn    jxlEncoderFrameSettingsCreate    = (JxlEncoderFrameSettingsCreate_pfn)   GetProcAddress (hModJXL, "JxlEncoderFrameSettingsCreate");
+  static JxlEncoderInitBasicInfo_pfn          jxlEncoderInitBasicInfo          = (JxlEncoderInitBasicInfo_pfn)         GetProcAddress (hModJXL, "JxlEncoderInitBasicInfo");
+  static JxlEncoderSetBasicInfo_pfn           jxlEncoderSetBasicInfo           = (JxlEncoderSetBasicInfo_pfn)          GetProcAddress (hModJXL, "JxlEncoderSetBasicInfo");
+  static JxlEncoderAddImageFrame_pfn          jxlEncoderAddImageFrame          = (JxlEncoderAddImageFrame_pfn)         GetProcAddress (hModJXL, "JxlEncoderAddImageFrame");
+  static JxlEncoderSetColorEncoding_pfn       jxlEncoderSetColorEncoding       = (JxlEncoderSetColorEncoding_pfn)      GetProcAddress (hModJXL, "JxlEncoderSetColorEncoding");
+  static JxlEncoderFrameSettingsSetOption_pfn jxlEncoderFrameSettingsSetOption = (JxlEncoderFrameSettingsSetOption_pfn)GetProcAddress (hModJXL, "JxlEncoderFrameSettingsSetOption");
+  static JxlEncoderSetParallelRunner_pfn      jxlEncoderSetParallelRunner      = (JxlEncoderSetParallelRunner_pfn)     GetProcAddress (hModJXL, "JxlEncoderSetParallelRunner");
+
+  static JxlThreadParallelRunner_pfn                        jxlThreadParallelRunner                        = (JxlThreadParallelRunner_pfn)                       GetProcAddress (hModJXLThreads, "JxlThreadParallelRunner");
+  static JxlThreadParallelRunnerCreate_pfn                  jxlThreadParallelRunnerCreate                  = (JxlThreadParallelRunnerCreate_pfn)                 GetProcAddress (hModJXLThreads, "JxlThreadParallelRunnerCreate");
+  static JxlThreadParallelRunnerDestroy_pfn                 jxlThreadParallelRunnerDestroy                 = (JxlThreadParallelRunnerDestroy_pfn)                GetProcAddress (hModJXLThreads, "JxlThreadParallelRunnerDestroy");
+  static JxlThreadParallelRunnerDefaultNumWorkerThreads_pfn jxlThreadParallelRunnerDefaultNumWorkerThreads = (JxlThreadParallelRunnerDefaultNumWorkerThreads_pfn)GetProcAddress (hModJXLThreads, "JxlThreadParallelRunnerDefaultNumWorkerThreads");
+
+  using JxlEncoderSetFrameLossless_pfn    = JxlEncoderStatus (*)(JxlEncoderFrameSettings *frame_settings, JXL_BOOL lossless);
+  using JxlEncoderSetFrameDistance_pfn    = JxlEncoderStatus (*)(JxlEncoderFrameSettings *frame_settings, float distance);
+  using JxlEncoderSetFrameBitDepth_pfn    = JxlEncoderStatus (*)(JxlEncoderFrameSettings *frame_settings, const JxlBitDepth *bit_depth);
+  using JxlEncoderDistanceFromQuality_pfn = float            (*)(float quality);
+
+  static JxlEncoderSetFrameLossless_pfn    jxlEncoderSetFrameLossless    = (JxlEncoderSetFrameLossless_pfn)   GetProcAddress (hModJXL, "JxlEncoderSetFrameLossless");  
+  static JxlEncoderSetFrameDistance_pfn    jxlEncoderSetFrameDistance    = (JxlEncoderSetFrameDistance_pfn)   GetProcAddress (hModJXL, "JxlEncoderSetFrameDistance");    
+  static JxlEncoderSetFrameBitDepth_pfn    jxlEncoderSetFrameBitDepth    = (JxlEncoderSetFrameBitDepth_pfn)   GetProcAddress (hModJXL, "JxlEncoderSetFrameBitDepth");  
+  static JxlEncoderDistanceFromQuality_pfn jxlEncoderDistanceFromQuality = (JxlEncoderDistanceFromQuality_pfn)GetProcAddress (hModJXL, "JxlEncoderDistanceFromQuality");
+
+  bool succeeded = false;
+
+  if ( jxlEncoderCreate                               == nullptr ||
+       jxlThreadParallelRunnerCreate                  == nullptr ||
+       jxlThreadParallelRunnerDefaultNumWorkerThreads == nullptr )
+  {
+    SK_LOGi0 (L"JPEG XL library unavailable");
+    return false;//E_NOINTERFACE;
+  }
+
+         auto  jxl_encoder = jxlEncoderCreate              (nullptr);
+  static void* jxl_runner  = jxlThreadParallelRunnerCreate (nullptr, config.screenshots.avif.max_threads);
+  // Keep max thread count low, or it will hitch...
+
+  for (;;)
+  {
+    if ( jxl_encoder == nullptr ||
+         jxl_runner  == nullptr )
+      break;
+
+    const DirectX::Image& image =
+      *src_image.GetImages ();
+    
+    if ( JXL_ENC_SUCCESS !=
+           jxlEncoderSetParallelRunner ( jxl_encoder,
+                                           jxlThreadParallelRunner,
+                                             jxl_runner ) )
+    {
+      SK_LOGi0 (L"JxlEncoderSetParallelRunner failed");
+      break;
+    }
+
+    float compression_quality =
+      std::min (100.0f, static_cast <float> (config.screenshots.compression_quality) + 0.75f);
+
+    const bool bLossless =
+      (compression_quality == 100.0f);
+
+    JxlDataType type;
+    size_t      size = sizeof (uint16_t);
+
+    switch (image.format)
+    {
+      default:
+      case DXGI_FORMAT_R16G16B16A16_UNORM: type = JXL_TYPE_FLOAT16; break;
+      case DXGI_FORMAT_R10G10B10A2_UNORM:  type = JXL_TYPE_UINT16;  break;
+    }
+
+    std::vector <uint16_t> rgb16_pixels (image.width * image.height * 3);
+
+    auto rgb16_pixel =
+      rgb16_pixels.begin ();
+
+    EvaluateImage ( image,
+      [&](const XMVECTOR* pixels, size_t width, size_t y)
+      {
+        using namespace DirectX::PackedVector;
+
+        UNREFERENCED_PARAMETER(y);
+
+        if (image.format == DXGI_FORMAT_R10G10B10A2_UNORM)
+        {
+          for (size_t j = 0; j < width; ++j)
+          {
+            XMVECTOR v = *pixels++;
+
+            *rgb16_pixel++ = static_cast <uint16_t> (std::min (65535ui32, (uint32_t)(XMVectorGetX (v) * 65536.0f)));
+            *rgb16_pixel++ = static_cast <uint16_t> (std::min (65535ui32, (uint32_t)(XMVectorGetY (v) * 65536.0f)));
+            *rgb16_pixel++ = static_cast <uint16_t> (std::min (65535ui32, (uint32_t)(XMVectorGetZ (v) * 65536.0f)));
+          }
+        }
+
+        else
+        {
+          for (size_t j = 0; j < width; ++j)
+          {
+            XMHALF4 half4 (pixels++->m128_f32);
+
+            *rgb16_pixel++ = half4.x;
+            *rgb16_pixel++ = half4.y;
+            *rgb16_pixel++ = half4.z;
+          }
+        }
+      }
+    );
+
+    JxlPixelFormat pixel_format =
+      { 3, type, JXL_NATIVE_ENDIAN, 0 };
+
+    JxlBasicInfo              basic_info = { };
+    jxlEncoderInitBasicInfo (&basic_info);
+
+    basic_info.xsize                 = static_cast <uint32_t> (image.width);
+    basic_info.ysize                 = static_cast <uint32_t> (image.height);
+    basic_info.uses_original_profile = bLossless ? JXL_TRUE : JXL_FALSE;
+
+    switch (image.format)
+    {
+      case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        basic_info.bits_per_sample          = 16;
+        basic_info.exponent_bits_per_sample =  5;
+        break;
+      case DXGI_FORMAT_R10G10B10A2_UNORM:
+        basic_info.bits_per_sample          = 10;
+        basic_info.exponent_bits_per_sample =  0;
+        break;
+      default:
+        basic_info.bits_per_sample          = static_cast <uint32_t> (DirectX::BitsPerColor (image.format));
+        basic_info.exponent_bits_per_sample =                         DirectX::BitsPerColor (image.format) == 32 ? 8 : 5;
+        break;
+    }
+
+    if ( JXL_ENC_SUCCESS !=
+           jxlEncoderSetBasicInfo (jxl_encoder, &basic_info) )
+    {
+      SK_LOGi0 (L"JxlEncoderSetBasicInfo failed");
+      break;
+    }
+
+    JxlColorEncoding color_encoding = { };
+
+    color_encoding.color_space      = JXL_COLOR_SPACE_RGB;
+    color_encoding.white_point      = JXL_WHITE_POINT_D65;
+    color_encoding.rendering_intent = JXL_RENDERING_INTENT_PERCEPTUAL;
+
+    switch (image.format)
+    {
+      default:
+      case DXGI_FORMAT_R16G16B16A16_FLOAT:
+        color_encoding.primaries         = JXL_PRIMARIES_SRGB;
+        color_encoding.transfer_function = JXL_TRANSFER_FUNCTION_LINEAR;
+        break;
+      case DXGI_FORMAT_R10G10B10A2_UNORM:
+        color_encoding.primaries         = JXL_PRIMARIES_2100;
+        color_encoding.transfer_function = JXL_TRANSFER_FUNCTION_PQ;
+        break;
+    }
+
+    if ( JXL_ENC_SUCCESS !=
+           jxlEncoderSetColorEncoding (jxl_encoder, &color_encoding) )
+    {
+      SK_LOGi0 (L"JxlEncoderSetColorEncoding failed");
+      break;
+    }
+
+    JxlEncoderFrameSettings* frame_settings =
+      jxlEncoderFrameSettingsCreate (jxl_encoder, nullptr);
+
+    jxlEncoderSetFrameLossless       (frame_settings, bLossless ? JXL_TRUE : JXL_FALSE);
+    jxlEncoderSetFrameDistance       (frame_settings, jxlEncoderDistanceFromQuality (compression_quality));
+    jxlEncoderFrameSettingsSetOption (frame_settings, JXL_ENC_FRAME_SETTING_EFFORT, 7);
+
+    if ( JXL_ENC_SUCCESS !=
+           jxlEncoderAddImageFrame ( frame_settings, &pixel_format,
+             static_cast <const void *> (rgb16_pixels.data ()),
+                                  size * rgb16_pixels.size () ) )
+    {
+      SK_LOGi0 (L"JxlEncoderAddImageFrame failed");
+      break;
+    }
+
+    jxlEncoderCloseInput (jxl_encoder);
+
+    std::vector <uint8_t> output (65536);
+
+    uint8_t* next_out  = output.data ();
+    size_t   avail_out = output.size () - (next_out - output.data ());
+
+    JxlEncoderStatus
+           process_result  = JXL_ENC_NEED_MORE_OUTPUT;
+    while (process_result == JXL_ENC_NEED_MORE_OUTPUT)
+    {
+      process_result =
+        jxlEncoderProcessOutput (jxl_encoder, &next_out, &avail_out);
+
+      if (process_result == JXL_ENC_NEED_MORE_OUTPUT)
+      {
+        size_t offset = next_out - output.data ();
+
+        output.resize (output.size () * 2);
+
+        next_out  = output.data () + offset;
+        avail_out = output.size () - offset;
+      }
+    }
+
+    size_t output_size =
+      (next_out - output.data ());
+
+    if (JXL_ENC_SUCCESS != process_result)
+    {
+      SK_LOGi0 (L"JxlEncoderProcessOutput failed");
+      break;
+    }
+
+    wchar_t    wszJXLPath [MAX_PATH + 2] = { };
+    wcsncpy_s (wszJXLPath, wszFilePath, MAX_PATH);
+
+    PathRemoveExtensionW (wszJXLPath);
+    PathAddExtensionW    (wszJXLPath, L".jxl");
+
+    FILE* fOutput =
+      _wfopen (wszJXLPath, L"wb");
+
+    if (fOutput != nullptr)
+    {
+      fwrite (output.data (), output_size, 1, fOutput);
+      fclose (fOutput);
+
+      SK_LOGi1 (L"JPEG XL Encode Finished");
+
+      succeeded = true;
+    }
+
+    break;
+  }
+
+  if (jxl_encoder != nullptr)
+    jxlEncoderDestroy (jxl_encoder);
+
+  //if (jxl_runner != nullptr)
+  //  jxlThreadParallelRunnerDestroy (jxl_runner);
+
+  return
+    succeeded;
 }
 
 void
@@ -1590,49 +1996,6 @@ SK_HDR_CalculateContentLightInfo (const DirectX::Image& img)
     0.168880969f, 0.0593017153f, 1.0609850800f, 0.0f,
     0.0f,         0.0f,          0.0f,          1.0f
   };
-  
-  struct ParamsPQ
-  {
-    XMVECTOR N, M;
-    XMVECTOR C1, C2, C3;
-    XMVECTOR MaxPQ;
-  };
-  
-  static const ParamsPQ PQ =
-  {
-    XMVectorReplicate (2610.0 / 4096.0 / 4.0),   // N
-    XMVectorReplicate (2523.0 / 4096.0 * 128.0), // M
-    XMVectorReplicate (3424.0 / 4096.0),         // C1
-    XMVectorReplicate (2413.0 / 4096.0 * 32.0),  // C2
-    XMVectorReplicate (2392.0 / 4096.0 * 32.0),  // C3
-    XMVectorReplicate (125.0),
-  };
-
-  auto PQToLinear = [](XMVECTOR N)
-  {
-    XMVECTOR ret;
-
-    XMVECTOR sign =
-      XMVectorSet (XMVectorGetX (N) < 0.0f ? -1.0f : 1.0f,
-                   XMVectorGetY (N) < 0.0f ? -1.0f : 1.0f,
-                   XMVectorGetZ (N) < 0.0f ? -1.0f : 1.0f, 1.0f);
-
-    ret =
-      XMVectorPow (XMVectorAbs (N), XMVectorDivide (g_XMOne, PQ.M));
-
-    XMVECTOR nd;
-
-    nd =
-      XMVectorDivide (
-        XMVectorMax (XMVectorSubtract (ret, PQ.C1), g_XMZero),
-                     XMVectorSubtract (     PQ.C2,
-              XMVectorMultiply (PQ.C3, ret)));
-
-    ret =
-      XMVectorMultiply (XMVectorMultiply (XMVectorPow (nd, XMVectorDivide (g_XMOne, PQ.N)), PQ.MaxPQ), sign);
-
-    return ret;
-  };
 
   float N         =       0.0f;
   float fLumAccum =       0.0f;
@@ -1749,7 +2112,7 @@ SK_HDR_CalculateContentLightInfo (const DirectX::Image& img)
       percent -=
         100.0 * ((double)luminance_freq [i] / img_size);
 
-      if (percent <= 99.9)
+      if (percent <= 99.975)
       {
         fMaxLum =
           fMinLum + (fLumRange * ((float)i / 65536.0f));

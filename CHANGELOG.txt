@@ -1,11 +1,44 @@
-﻿24.8.22.1
+﻿24.8.25
+=======
+ + Implement half-float (scRGB) and uint16 (HDR10) lossless JPEG XL encoding
+
+24.8.24.4
+=========
+ + Disable Final Fantasy XVI's Splash Screen so it cannot break DirectFlip
+     >> Only works for Global Injection
+
+24.8.24.3
+=========
+ + Reduce the number of threads Final Fantasy XVI uses for JPEG XL screenshots
+     in its photo mode to eliminate hitching (libjxl spawns 1 thread per-core).
+
+24.8.24.2
+=========
+ + Transform HDR10 to scRGB before encoding JPEG XL screenshots in HDR10 games
+
+24.8.24.1
+=========
+ + Added support for JPEG XL screenshots (64-bit only; 32-bit will be added)
+
+   * Default quality level is 99%, this is primarily a lossy format.
+   * JXL lossless compression ratio is poor, but not as poor as PNG.
+   * AVIF or PNG are better choices for sharing lossless reference images.
+
+24.8.24
+=======
+ + Fixed issues with "hide mouse cursor" feature not working in some games
+     after alt-tab following changes in 24.5.25.2.
+ + Fixed potential black pixel artifacts on ImGui's UI when using HDR10->scRGB
+     translation mode.
+
+24.8.22.1
 =========
  + Add workaround for FFXVI beeping after Alt-Tab because it thinks the Alt
      key is stuck down.
 
 24.8.22
 =======
- + Added FFXVI plug-in to improve JPEG-XL screenshot quality after looking at
+ + Added FFXVI plug-in to improve JPEG XL screenshot quality after looking at
      the artifacts caused by Square-Enix's default compression settings.
 
     >> Screenshots are now 16-bpc instead of 8-bpc and quality set to 98.5%
@@ -2938,7 +2971,7 @@
 23.12.22
 ========
  + Added option to use compatibility hacks when storing screenshots to make
-     them work with software that does not completely implement AVIF and JPEG-XR
+     them work with software that does not completely implement AVIF and JPEG XR
        decoding.
 
    Global\osd.ini:
@@ -3007,7 +3040,7 @@
 
 23.12.18.2
 ==========
- + Added compression quality setting for JPEG-XR HDR screenshots (Default: 90%)
+ + Added compression quality setting for JPEG XR HDR screenshots (Default: 90%)
 
 23.12.18.1
 ==========
