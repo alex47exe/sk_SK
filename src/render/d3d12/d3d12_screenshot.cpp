@@ -2014,68 +2014,22 @@ SK_D3D12_ProcessScreenshotQueueEx ( SK_ScreenshotStage stage_ = SK_ScreenshotSta
                       LinearToPQY (std::min (_maxNitsToTonemap, maxLum))
                     );
 
-                  hr =               un_srgb.GetImageCount () == 1 ?
-                    TransformImage ( un_srgb.GetImages     (),
-                                     un_srgb.GetImageCount (),
-                                     un_srgb.GetMetadata   (),
-                    [&](XMVECTOR* outPixels, const XMVECTOR* inPixels, size_t width, size_t y)
-                    {
-                      UNREFERENCED_PARAMETER(y);
+                  static std::vector <parallel_tonemap_job_s> parallel_jobs   (config.screenshots.avif.max_threads);
+                  static std::vector <HANDLE>                 parallel_start  (config.screenshots.avif.max_threads);
+                  static std::vector <HANDLE>                 parallel_finish (config.screenshots.avif.max_threads);
+                         std::vector <XMVECTOR>               parallel_pixels (un_srgb.GetMetadata ().width *
+                                                                               un_srgb.GetMetadata ().height);
 
-                      auto TonemapHDR = [](float L, float Lc, float Ld) -> float
-                      {
-                        float a = (  Ld / pow (Lc, 2.0f));
-                        float b = (1.0f / Ld);
-                      
-                        return
-                          L * (1 + a * L) / (1 + b * L);
-                      };
+                  SK_Image_InitializeTonemap   (         parallel_jobs, parallel_start,      parallel_finish);
+                  SK_Image_EnqueueTonemapTask  (un_srgb, parallel_jobs, parallel_pixels, maxYInPQ, SDR_YInPQ);
+                  SK_Image_DispatchTonemapJobs (         parallel_jobs);
+                  SK_Image_GetTonemappedPixels (final_sdr, un_srgb,     parallel_pixels,     parallel_finish);
 
-                      for (size_t j = 0; j < width; ++j)
-                      {
-                        XMVECTOR value = inPixels [j];
-
-                        XMVECTOR ICtCp =
-                          Rec709toICtCp (value);
-
-                        float Y_in  = std::max (XMVectorGetX (ICtCp), 0.0f);
-                        float Y_out = 1.0f;
-
-                        Y_out =
-                          TonemapHDR (Y_in, maxYInPQ, SDR_YInPQ);
-
-                        if (Y_out + Y_in > 0.0f)
-                        {
-                          ICtCp.m128_f32 [0] = std::pow (XMVectorGetX (ICtCp), 1.18f);
-
-                          float I0      = XMVectorGetX (ICtCp);
-                          float I1      = 0.0f;
-                          float I_scale = 0.0f;
-
-                          ICtCp.m128_f32 [0] *=
-                            std::max ((Y_out / Y_in), 0.0f);
-
-                          I1 = XMVectorGetX (ICtCp);
-
-                          if (I0 != 0.0f && I1 != 0.0f)
-                          {
-                            I_scale =
-                              std::min (I0 / I1, I1 / I0);
-                          }
-
-                          ICtCp.m128_f32 [1] *= I_scale;
-                          ICtCp.m128_f32 [2] *= I_scale;
-                        }
-
-                        value =
-                          ICtCptoRec709 (ICtCp);
-
-                        maxTonemappedRGB =
-                          XMVectorMax (maxTonemappedRGB, XMVectorMax (value, g_XMZero));
-
-                        outPixels [j] = value;
-                      }
-                    }, final_sdr) : E_POINTER;
+                  for (auto& job : parallel_jobs)
+                  {
+                    maxTonemappedRGB =
+                      XMVectorMax (job.maxTonemappedRGB, maxTonemappedRGB);
+                  }
 
                   float fMaxR = XMVectorGetX (maxTonemappedRGB);
                   float fMaxG = XMVectorGetY (maxTonemappedRGB);

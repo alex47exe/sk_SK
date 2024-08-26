@@ -74,6 +74,7 @@ SK_RenderAPI                 SK::ControlPanel::render_api;
 DWORD                        SK::ControlPanel::current_time = 0;
 uint64_t                     SK::ControlPanel::current_tick;// Perf Counter
 SK::ControlPanel::font_cfg_s SK::ControlPanel::font;
+SK::ControlPanel::window_s   SK::ControlPanel::imgui_window = { };
 
 DWORD
 SK_GetCurrentMS (void) noexcept
@@ -3722,7 +3723,7 @@ SK_ImGui_ControlPanel (void)
         if (config.screenshots.png_compress && SK_GetBitness () == SK_Bitness::SixtyFourBit)
         {
           static bool bFetchingAVIF = false;
-          static bool bFetchingJXL  = false;
+          static int  iFetchingJXL  = 0;
 
           static constexpr int SK_CODEC_JXL  = 3;
           static constexpr int SK_CODEC_AVIF = 2;
@@ -3790,7 +3791,7 @@ SK_ImGui_ControlPanel (void)
               config.screenshots.use_hdr_png = false;
               config.screenshots.use_avif    = false;
 
-              if (! bFetchingJXL)
+              if (! iFetchingJXL)
               {
                 static std::filesystem::path jxl_dll =
                        std::filesystem::path (SK_GetPlugInDirectory (SK_PlugIn_Type::ThirdParty)) /
@@ -3812,8 +3813,11 @@ SK_ImGui_ControlPanel (void)
                        std::filesystem::exists (jxl_cms_dll,     ec) &&
                        std::filesystem::exists (jxl_threads_dll, ec)))
                 {
-                  bFetchingJXL = true;
+                  iFetchingJXL += (! std::filesystem::exists (jxl_dll,         ec)) ? 1 : 0;
+                  iFetchingJXL += (! std::filesystem::exists (jxl_cms_dll,     ec)) ? 1 : 0;
+                  iFetchingJXL += (! std::filesystem::exists (jxl_threads_dll, ec)) ? 1 : 0;
 
+                  if (! std::filesystem::exists (jxl_dll, ec))
                   SK_Network_EnqueueDownload (
                        sk_download_request_s (
                          jxl_dll.wstring (),
@@ -3827,11 +3831,8 @@ SK_ImGui_ControlPanel (void)
                       const std::wstring_view )
                    -> bool
                       {
-                        if (std::filesystem::exists (jxl_dll,         ec) &&
-                            std::filesystem::exists (jxl_cms_dll,     ec) &&
-                            std::filesystem::exists (jxl_threads_dll, ec))
+                        if (--iFetchingJXL == 0)
                         {
-                          bFetchingJXL                           = false;
                           config.screenshots.use_jxl             = true;
                           config.screenshots.compression_quality = 99;
                         }
@@ -3841,9 +3842,10 @@ SK_ImGui_ControlPanel (void)
                     ), true
                   );
 
+                  if (! std::filesystem::exists (jxl_threads_dll, ec))
                   SK_Network_EnqueueDownload (
                        sk_download_request_s (
-                         jxl_dll.wstring (),
+                         jxl_threads_dll.wstring (),
                            R"(https://sk-data.special-k.info/addon/ImageCodecs/)"
 #ifdef _M_X64
                            R"(libjxl/x64/jxl_threads.dll)",
@@ -3854,23 +3856,21 @@ SK_ImGui_ControlPanel (void)
                       const std::wstring_view )
                    -> bool
                       {
-                        if (std::filesystem::exists (jxl_dll,         ec) &&
-                            std::filesystem::exists (jxl_cms_dll,     ec) &&
-                            std::filesystem::exists (jxl_threads_dll, ec))
+                        if (--iFetchingJXL == 0)
                         {
-                          bFetchingJXL                           = false;
                           config.screenshots.use_jxl             = true;
                           config.screenshots.compression_quality = 99;
                         }
-                  
+
                         return false;
                       }
                     ), true
                   );
 
+                  if (! std::filesystem::exists (jxl_cms_dll, ec))
                   SK_Network_EnqueueDownload (
                        sk_download_request_s (
-                         jxl_dll.wstring (),
+                         jxl_cms_dll.wstring (),
                            R"(https://sk-data.special-k.info/addon/ImageCodecs/)"
 #ifdef _M_X64
                            R"(libjxl/x64/jxl_cms.dll)",
@@ -3881,15 +3881,12 @@ SK_ImGui_ControlPanel (void)
                       const std::wstring_view )
                    -> bool
                       {
-                        if (std::filesystem::exists (jxl_dll,         ec) &&
-                            std::filesystem::exists (jxl_cms_dll,     ec) &&
-                            std::filesystem::exists (jxl_threads_dll, ec))
+                        if (--iFetchingJXL == 0)
                         {
-                          bFetchingJXL                           = false;
                           config.screenshots.use_jxl             = true;
                           config.screenshots.compression_quality = 99;
                         }
-                  
+
                         return false;
                       }
                     ), true
@@ -3918,7 +3915,7 @@ SK_ImGui_ControlPanel (void)
             ImGui::TextColored (ImVec4 (.1f,.9f,.1f,1.f), "Downloading AVIF Plug-In...");
           }
 
-          if (bFetchingJXL)
+          if (iFetchingJXL != 0)
           {
             ImGui::TextColored (ImVec4 (.1f,.9f,.1f,1.f), "Downloading JPEG XL Plug-In...");
           }
@@ -4988,6 +4985,9 @@ SK_ImGui_ControlPanel (void)
       ( config.imgui.use_mac_style_menu ? 0x00 :
                                           ImGuiWindowFlags_MenuBar )
   );
+
+  SK::ControlPanel::imgui_window.id =
+    ImGui::GetCurrentWindow ()->ID;
 
   style = orig;
 
@@ -7102,6 +7102,9 @@ SK_ImGui_ControlPanel (void)
   SK_ImGui_LastWindowCenter.y = ( pos.y + size.y / 2.0f );
   }
 
+  SK::ControlPanel::imgui_window.hovered =
+    ImGui::IsWindowHovered ();
+
   ImGui::End           ();
   ImGui::PopStyleColor ();
 
@@ -8629,10 +8632,54 @@ SK_ImGui_DrawFrame ( _Unreferenced_parameter_ DWORD  dwFlags,
   return 0;
 }
 
+void
+SK_ImGui_BackupAndRestoreCursorPos (void)
+{
+  static POINT
+    ptOriginalCursorPos = {};
+
+  POINT             ptCursorPos = {};
+  SK_GetCursorPos (&ptCursorPos);
+
+  GetWindowRect (game_window.hWnd,
+                &game_window.actual.window);
+
+  if (! SK_ImGui_Visible)
+  {
+    if (PtInRect (&game_window.actual.window, ptCursorPos))
+    {
+      ptOriginalCursorPos = ptCursorPos;
+    }
+
+    else
+    {
+      ptOriginalCursorPos.x = LONG_MAX;
+      ptOriginalCursorPos.y = LONG_MIN;
+    }
+  }
+
+  else if (ptOriginalCursorPos.x != LONG_MAX ||
+           ptOriginalCursorPos.y != LONG_MIN)
+  {
+    if (PtInRect (&game_window.actual.window, ptCursorPos))
+    {
+      // Only restore the cursor pos if it is over the control panel when
+      //   closing the control panel.
+      if (SK::ControlPanel::imgui_window.hovered)
+      {
+        SK_SetCursorPos (ptOriginalCursorPos.x,
+                         ptOriginalCursorPos.y);
+      }
+    }
+  }
+}
+
 SK_API
 void
 SK_ImGui_Toggle (void)
 {
+  SK_ImGui_BackupAndRestoreCursorPos ();
+
   static ULONG64 last_frame = 0;
 
   if (last_frame != SK_GetFramesDrawn ())
@@ -8668,6 +8715,17 @@ SK_ImGui_Toggle (void)
 
   // Turns the hardware cursor on/off as needed
   ImGui_ToggleCursor ();
+
+
+  static auto Send_WM_SETCURSOR = [&](void)
+  {
+    SK_COMPAT_SafeCallProc (&game_window,
+            game_window.hWnd,                       WM_SETCURSOR,
+    (WPARAM)game_window.hWnd, MAKELPARAM (HTCLIENT, WM_MOUSEMOVE));
+  };
+
+  Send_WM_SETCURSOR ();
+
 
   // Most games
   if (! hModTBFix)
@@ -8736,20 +8794,19 @@ SK_ImGui_Toggle (void)
         if (dwWait == WAIT_OBJECT_0)
           break;
 
-        // Stupid hack to make sure the mouse cursor changes to SK's
-        //   in Unity engine games
+        // Stupid hack to make sure the mouse cursor swaps between SK's and
+        //   the game's in response to opening/closing the control panel
         if (dwWait == WAIT_OBJECT_0 + 1)
         {
           auto frames_drawn =
             SK_GetFramesDrawn ();
 
           while (frames_drawn > SK_GetFramesDrawn () - 1)
-            SK_Sleep (5);
+            SK_Sleep (0);
 
           ImGuiIO& io =
             ImGui::GetIO ();
 
-          io.WantSetMousePos  = true;
           io.WantCaptureMouse = true;
 
           POINT                 ptCursor;
@@ -8759,23 +8816,20 @@ SK_ImGui_Toggle (void)
                           &game_window.actual.window);
             if (PtInRect (&game_window.actual.window, ptCursor))
             {
-              // Move the cursor if it's not over any of SK's UI
-              if (! SK_ImGui_IsAnythingHovered ())
+              SK_SetCursorPos   (ptCursor.x + 1, ptCursor.y - 1);
+              Send_WM_SETCURSOR ();
+
+              frames_drawn =
+                SK_GetFramesDrawn ();
+
+              while (frames_drawn > SK_GetFramesDrawn () - 1)
               {
-                SK_SetCursorPos (ptCursor.x + 4, ptCursor.y - 4);
-
-                frames_drawn =
-                  SK_GetFramesDrawn ();
-
-                while (frames_drawn > SK_GetFramesDrawn () - 1)
-                  SK_Sleep (5);
-
-                SK_SetCursorPos (ptCursor.x - 4, ptCursor.y + 4);
-
-                SK_COMPAT_SafeCallProc (&game_window,
-                          game_window.hWnd,                       WM_SETCURSOR,
-                  (WPARAM)game_window.hWnd, MAKELPARAM (HTCLIENT, WM_MOUSEMOVE));
+                SK_Sleep (0);
               }
+
+              SK_GetCursorPos   (&ptCursor);
+              SK_SetCursorPos   ( ptCursor.x - 1, ptCursor.y + 1);
+              Send_WM_SETCURSOR (         );
             }
           }
         }
@@ -8790,12 +8844,10 @@ SK_ImGui_Toggle (void)
   // Save config on control panel close, not open
   if (! SK_ImGui_Visible)
     config.utility.save_async ();
+
   // Move the cursor a couple of times to change the loaded image
-  else
-  {
-    if (config.input.ui.use_hw_cursor)
-      SetEvent (hMoveCursor);
-  }
+  if (config.input.ui.use_hw_cursor)
+    SetEvent (hMoveCursor);
 
 
   // Immediately stop capturing keyboard/mouse events,
