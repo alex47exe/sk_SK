@@ -283,9 +283,9 @@ main (PS_INPUT input) : SV_TARGET
     bIsHDR10 ?
       REC2020toREC709 (RemoveREC2084Curve ( hdr_color.rgb )) :
 #endif
-                         SK_ProcessColor4 ( hdr_color.rgba,
-                                            xRGB_to_Linear,
-                              sdrContentEOTF != 1.0f).rgb;
+                 SK_ProcessColor4 ( hdr_color.rgba,
+                                    xRGB_to_Linear,
+                      sdrContentEOTF != 1.0f).rgb;
 
   hdr_color.rgb *= max_rgb_comp;
 
