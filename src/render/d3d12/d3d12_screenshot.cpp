@@ -1512,7 +1512,7 @@ SK_D3D12_ProcessScreenshotQueueEx ( SK_ScreenshotStage stage_ = SK_ScreenshotSta
                     percent -=
                       100.0 * ((double)luminance_freq [i] / img_size);
 
-                    if (percent <= 99.975)
+                    if (percent <= 99.94)
                     {
                       maxLum =
                         minLum + (fLumRange * ((float)i / 65536.0f));
@@ -1561,12 +1561,13 @@ SK_D3D12_ProcessScreenshotQueueEx ( SK_ScreenshotStage stage_ = SK_ScreenshotSta
                   float fMaxG = XMVectorGetY (maxTonemappedRGB);
                   float fMaxB = XMVectorGetZ (maxTonemappedRGB);
 
-                  if (( fMaxR <  1.0f ||
-                        fMaxG <  1.0f ||
-                        fMaxB <  1.0f ) &&
-                      ( fMaxR >= 1.0f ||
-                        fMaxG >= 1.0f ||
-                        fMaxB >= 1.0f ))
+                  if (false)
+                      //( fMaxR <  1.0f ||
+                      //  fMaxG <  1.0f ||
+                      //  fMaxB <  1.0f ) &&
+                      //( fMaxR >= 1.0f ||
+                      //  fMaxG >= 1.0f ||
+                      //  fMaxB >= 1.0f ))
                   {
                     float fSmallestComp =
                       std::min ({fMaxR, fMaxG, fMaxB});

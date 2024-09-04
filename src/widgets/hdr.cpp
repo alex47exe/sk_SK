@@ -1190,6 +1190,31 @@ public:
           }
         }
 
+        // Swap presets when changing between scRGB and HDR10 native
+        if (__SK_HDR_Preset == 3 && __SK_HDR_16BitSwap)
+        {
+          __SK_HDR_Preset = 2;
+          hdr_presets [__SK_HDR_Preset].cfg_tonemap->set_value (SK_HDR_TONEMAP_HDR10_PASSTHROUGH);
+        }
+
+        else if (__SK_HDR_Preset == 2 && __SK_HDR_10BitSwap)
+        {
+          __SK_HDR_Preset = 3;
+          hdr_presets [__SK_HDR_Preset].cfg_tonemap->set_value (SK_HDR_TONEMAP_HDR10_PASSTHROUGH);
+        }
+
+        auto& preset =
+          hdr_presets [__SK_HDR_Preset];
+
+        if (preset.cfg_nits->get_value () == 1.0f)
+        {
+          preset.peak_white_nits = 0.99999f;
+          preset.cfg_nits->set_value (preset.peak_white_nits);
+
+          preset.activate ();
+          preset.store    ();
+        }
+
         config.utility.save_async ();
 
         SK_ComQIPtr <IDXGISwapChain3> pSwapChain (rb.swapchain);
@@ -1940,6 +1965,12 @@ public:
                   preset.colorspace.tonemap = SK_HDR_TONEMAP_NONE;
                   preset.eotf               = 1.0f;
 
+                  if (preset.cfg_nits->get_value () == 1.0f)
+                  {
+                    preset.peak_white_nits = 0.99999f;
+                    preset.cfg_nits->set_value (preset.peak_white_nits);
+                  }
+
                   preset.activate ();
                   preset.store    ();
                 }
@@ -1950,6 +1981,12 @@ public:
 
                   preset.colorspace.tonemap = SK_HDR_TONEMAP_HDR10_PASSTHROUGH;
                   preset.eotf               = 1.0f;
+
+                  if (preset.cfg_nits->get_value () == 1.0f)
+                  {
+                    preset.peak_white_nits = 0.99999f;
+                    preset.cfg_nits->set_value (preset.peak_white_nits);
+                  }
 
                   preset.activate ();
                   preset.store    ();
@@ -2099,10 +2136,10 @@ public:
 
             sec.add_key_value (
               SK_FormatStringW (L"scRGBLuminance_[%lu]", __SK_HDR_Preset),
-                                                 std::to_wstring (preset.peak_white_nits) );
+                                             std::to_wstring (preset.peak_white_nits) );
             sec.add_key_value (
               SK_FormatStringW (L"scRGBPaperWhite_[%lu]", __SK_HDR_Preset),
-                                                  std::to_wstring (preset.paper_white_nits) );
+                                             std::to_wstring (preset.paper_white_nits) );
             sec.add_key_value (
               SK_FormatStringW (L"scRGBGamma_[%lu]", __SK_HDR_Preset),
                                              std::to_wstring (preset.eotf) );
@@ -2315,7 +2352,7 @@ public:
 
             const bool pboost = (preset.pq_boost0 > 0.0f);
 
-            if (abs (__SK_HDR_Luma) != 1.0f)
+            if (abs (__SK_HDR_Luma) >= 1.0f)
             {
               if (ImGui::Checkbox ("Tonemap Overbright Bits", &preset.tonemap_overbright))
               {
@@ -2328,7 +2365,8 @@ public:
 
             if (pboost)
             {
-              ImGui::SameLine ();
+              if (abs (__SK_HDR_Luma) >= 1.0f)
+                ImGui::SameLine ();
 
               float colorboost =
                 100.0f * preset.pq_colorboost;
