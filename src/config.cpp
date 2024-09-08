@@ -3220,7 +3220,7 @@ auto DeclKeybind =
         if (PathFileExistsW ((std::filesystem::path (SK_D3D11_res_root->c_str ()) / LR"(inject\textures\CDE62E66.dds)").c_str ()))
         {
           void *pSteamInput001 =
-            SK_Scan ("SteamInput001", 13, "SteamInput001");
+            SK_ScanAligned ("SteamInput001", 13, "SteamInput001", 16);
 
           if (pSteamInput001 != nullptr)
           {
@@ -3478,9 +3478,8 @@ auto DeclKeybind =
       case SK_GAME_ID::StarWarsOutlaws:
       {
         // Avoid anti-debug stuff
-        //config.compatibility.disable_debug_features  = true;
+        config.compatibility.disable_debug_features  = true;
         SK_GetCurrentRenderBackend ().windows.capcom = true;
-        //config.window.dont_hook_wndproc = true;
       } break;
 
       case SK_GAME_ID::FinalFantasy7Remake:
