@@ -465,6 +465,7 @@ struct sk_config_t
     bool        reuse_overlay_pause   =  false;// Use Steam's overlay pause mode for our own
                                                //   control panel
     bool        silent                = false;
+    bool        steam_is_b0rked       = false; // Need to swallow some exceptions or Streamline may crash games
   } platform;
 
   struct epic_s {
@@ -817,6 +818,8 @@ struct sk_config_t
       bool    disable_telemetry    = false;
       bool    disable_gpu_decomp   = false;
       bool    force_file_buffering = false;
+      int     submit_threads       = -1;
+      int     cpu_decomp_threads   = -1;
     } dstorage;
 
     struct {
@@ -1326,6 +1329,7 @@ struct sk_config_t
     bool    deny_foreign_change =  true;
     int     minimum_render_prio = THREAD_PRIORITY_ABOVE_NORMAL;
     DWORD   available_cpu_cores =   1UL;
+    int64_t cpu_affinity_mask   = 0xFFFFFFFFFFFFFFFFULL;
   } priority;
 
   struct skif_s {

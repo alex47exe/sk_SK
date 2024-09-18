@@ -52,6 +52,10 @@
 #include <CoreWindow.h>
 #include <VersionHelpers.h>
 
+#undef IMGUI_VERSION_NUM
+#include <ReShade/reshade.hpp>
+#include <ReShade/reshade_api.hpp>
+
 BOOL _NO_ALLOW_MODE_SWITCH = FALSE;
 DXGI_SWAP_CHAIN_DESC  _ORIGINAL_SWAP_CHAIN_DESC = { };
 DXGI_SWAP_CHAIN_DESC1 _ORIGINAL_SWAP_CHAIN_DESC1 = { };
@@ -2369,6 +2373,12 @@ SK_DXGI_PresentBase ( IDXGISwapChain         *This,
   SK_RenderBackend& rb =
     SK_GetCurrentRenderBackend ();
 
+  const auto& display =
+    rb.displays [rb.active_display];
+
+  const bool bDLSS3OnVRRDisplay =
+    (__SK_IsDLSSGActive && display.nvapi.vrr_enabled);
+
   auto _Present = [&](UINT _SyncInterval,
                       UINT _Flags) ->
   HRESULT
@@ -2377,7 +2387,7 @@ SK_DXGI_PresentBase ( IDXGISwapChain         *This,
          config.render.framerate.target_fps_bg < rb.getActiveRefreshRate () / 2.0f &&
          (! SK_IsGameWindowActive ()) )
     {
-      if ( SK_GetFramesDrawn () > 30 && rb.displays [rb.active_display].nvapi.vrr_enabled &&
+      if ( SK_GetFramesDrawn () > 30 && display.nvapi.vrr_enabled &&
            ( config.window.background_render ||
              config.window.always_on_top == SmartAlwaysOnTop ) )
       {
@@ -2442,6 +2452,13 @@ SK_DXGI_PresentBase ( IDXGISwapChain         *This,
         // Remove this flag
         _Flags &= ~DXGI_PRESENT_ALLOW_TEARING;
       }
+    
+      // Turn tearing off when using frame generation
+      if (bDLSS3OnVRRDisplay)
+      {
+        _Flags &= ~DXGI_PRESENT_ALLOW_TEARING;
+        _SyncInterval = 0;
+      }
     }
 
     // Only works in Fullscreen
@@ -2465,7 +2482,7 @@ SK_DXGI_PresentBase ( IDXGISwapChain         *This,
         _d3d12_rbk->release (This);
       }
 
-      if ( ret != S_OK && (! rb.active_traits.bOriginallyFlip) && SK_GetCurrentRenderBackend ().api != SK_RenderAPI::D3D12 )
+      if ( ret != S_OK && (! rb.active_traits.bOriginallyFlip) && rb.api != SK_RenderAPI::D3D12 )
       {
         // This would recurse infinitely without the ghetto lock
         //
@@ -2577,8 +2594,8 @@ SK_DXGI_PresentBase ( IDXGISwapChain         *This,
       );
     };
 
-  if (! config.render.dxgi.allow_tearing)
-  {
+  if ((! config.render.dxgi.allow_tearing) || bDLSS3OnVRRDisplay)
+  {                                           // Turn tearing off when using frame generation
     if (Flags & DXGI_PRESENT_ALLOW_TEARING)
     {
       SK_RunOnce (
@@ -2586,6 +2603,11 @@ SK_DXGI_PresentBase ( IDXGISwapChain         *This,
       );
 
       Flags &= ~DXGI_PRESENT_ALLOW_TEARING;
+    }
+
+    if (bDLSS3OnVRRDisplay)
+    {
+      SyncInterval = 0;
     }
   }
 
@@ -4655,6 +4677,36 @@ SK_DXGI_CreateSwapChain_PreInit (
       dxgi_caps.present.flip_sequential;
   }
 
+
+  // Use Flip Sequential if ReShade is present, so that screenshots
+  //   work as expected...
+  static bool 
+        bHasReShade = reshade::internal::get_reshade_module_handle (nullptr);
+  if (! bHasReShade)
+  {
+    SK_RunOnce (
+    {
+      for (auto& import : imports->imports)
+      {
+        if ( StrStrIW (                      import.name.c_str (), L"ReShade")
+                   || (import.filename != nullptr              &&
+             StrStrIW (import.filename->get_value_str ().c_str (), L"ReShade")) )
+        {
+          bHasReShade = true;
+          break;
+        }
+      }
+    });
+  }
+
+  const DXGI_SWAP_EFFECT
+    original_swap_effect =
+      pDesc  != nullptr  ? pDesc ->SwapEffect :
+      pDesc1 != nullptr  ? pDesc1->SwapEffect :
+        DXGI_SWAP_EFFECT_DISCARD;
+
+
+
   auto _DescribeSwapChain = [&](const wchar_t* wszLabel) noexcept -> void
   {
     wchar_t    wszMSAA [128] = { };
@@ -5231,8 +5283,16 @@ SK_DXGI_CreateSwapChain_PreInit (
 
         if ( config.render.framerate.flip_discard &&
                    dxgi_caps.present.flip_discard )
-          pDesc->SwapEffect  = (DXGI_SWAP_EFFECT)DXGI_SWAP_EFFECT_FLIP_DISCARD;
-
+        {
+          if (bHasReShade)
+            pDesc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+          else
+            pDesc->SwapEffect = 
+              (original_swap_effect == DXGI_SWAP_EFFECT_DISCARD ||
+               original_swap_effect == DXGI_SWAP_EFFECT_FLIP_DISCARD) ?
+                                       DXGI_SWAP_EFFECT_FLIP_DISCARD  :
+                                       DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+        }
         else // On Windows 8.1 and older, sequential must substitute for discard
           pDesc->SwapEffect  = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
       }
@@ -5253,8 +5313,16 @@ SK_DXGI_CreateSwapChain_PreInit (
     }
 
     // Option to force Flip Sequential for buggy systems
-    if (pDesc->SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD && config.render.framerate.flip_sequential)
-        pDesc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    if (pDesc->SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD && (config.render.framerate.flip_sequential || bHasReShade))
+        pDesc->SwapEffect  = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+
+    if ( bHasReShade &&
+            pDesc->SwapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL &&
+         original_swap_effect != DXGI_SWAP_EFFECT_SEQUENTIAL      &&
+         original_swap_effect != DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL )
+    {
+      SK_LOGi0 (L"  >> Using DXGI Flip Sequential for compatibility with ReShade");
+    }
 
     SK_LOGs1 ( L" DXGI 1.2 ",
                L"  >> Using %s Presentation Model  [Waitable: %s - %li ms]",
@@ -10214,6 +10282,8 @@ static constexpr uint32_t
   BUDGET_POLL_INTERVAL = 133UL; // How often to sample the budget
                                 //  in msecs
 
+HANDLE __SK_DXGI_BudgetChangeEvent = INVALID_HANDLE_VALUE;
+
 DWORD
 WINAPI
 SK::DXGI::BudgetThread ( LPVOID user_data )
@@ -10244,6 +10314,8 @@ SK::DXGI::BudgetThread ( LPVOID user_data )
 
     if ( params->event == nullptr )
       break;
+
+    __SK_DXGI_BudgetChangeEvent = params->event;
 
     HANDLE phEvents [] = {
       params->event, params->shutdown,

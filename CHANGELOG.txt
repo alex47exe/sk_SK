@@ -1,4 +1,132 @@
-﻿24.9.16
+﻿24.9.19
+=======
+ + Added protection against SteamAPI's internal exceptions being caught by
+     NVIDIA Streamline's Interposer DLL and triggering NVIDIA's stupid
+       any exception detected ==> minidump crap built-in to DLSS3.
+
+    * Calling SteamAPI functions from overlay code is UNSAFE thanks to NVIDIA
+        and their non-defeatable and ill-advised exception handler built-in to
+          Streamline.
+
+     Streamline catches exceptions that ARE handled by the software, or are
+       continuable, and turns harmless exceptions into full crashes (gah!!).
+
+    sl.interposer.dll is pure evil when officially compiled by NVIDIA using
+      the release build configuration.
+
+    @ NVIDIA get that crap out of there please, and remove the codesigned DLL
+        DRM so users can at least bypass your boobytrap without losing DLSS3.
+
+24.9.18.6
+=========
+ + Added sensible limits to DirectStorage thread count sliders
+ + Reduced the DirectStorage queue length in FFXVI to reduce stutter
+
+24.9.18.5
+=========
+ + Added experimental DirectStorage Submit Thread and CPU Decompression Thread
+     count overrides to Final Fantasy XVI.
+
+  >> Default Submit Threads are 1; increasing may reduce load time and stutter.
+
+   * Experiment with conservatively, high thread count has been known to crash.
+   * CPU decomp threads are unlikely to help unless GPU decomp is disabled.
+
+24.9.18.4
+=========
+ + Fixed potential "Steam is Offline" errors in Final Fantasy XVI for some users
+
+24.9.18.3
+=========
+ + Fixed edge-case where DLSS3 Frame Generation is active on a VRR display, but
+     SK was not disabling tearing while the game has VSYNC turned off.
+
+24.9.18.2
+=========
+ + Baldur's Gate 3 has native DualSense support now, but lacks DualSense Edge
+     support, so SK is configured to identify DualSense Edge controllers as
+       DualSense to make them work natively in Baldur's Gate 3.
+
+24.9.18.1
+=========
+ + Adjusted SEH Exception logging code for compatibility with GOG Galaxy API
+
+24.9.18
+=======
+ + Use Flip Sequential by default if a game is already Flip Model and uses
+     Sequential, or if upgrading a Blt Sequential game to  Flip Model, or
+       if ReShade is loaded.
+
+    >> This helps screenshot compatibility in games when using ReShade.
+
+24.9.17.5
+=========
+ + Enable "Fake Fullscreen" by default in FFXVI to make HDR less of a nuisance
+
+24.9.17.4
+=========
+ + Patched out graphics debugger check from Final Fantasy XVI Retail
+
+24.9.17.3
+=========
+ + Hotfix for DirectStorage instability in Final Fantasy XVI
+
+24.9.17.2
+=========
+ + Hotfix for VBlank counting thread running while a game has destroyed and
+     is re-creating a SwapChain.
+
+24.9.17.1
+=========
+ + Add RAM warning if used system RAM reaches >= 98% while a game is running
+ + Added command console variable to control DXGI Budget Scale (see 24.9.10)
+
+           DXGI.VRAMBudgetScale     (Range: 0.1 - 5.0)
+
+        [ Press Ctrl+Shift+Tab to Open/Close the Command Console ]
+
+      * Some games will respond in real-time to changes to this.
+      * Changes made from the command console are saved to SK's per-game INI.
+     
+     This allows tweaking over- or under-reporting of available VRAM to get a
+       game to load in higher detail assets or evict memory to reduce stutter.
+
+     DXGI Budget tracking is used mostly in D3D12 or very advanced D3D11 games;
+       
+     Nixxes games have a weird Dedicated VRAM => Shared Mem offload system that
+       can make tuning this worthwhile on cards with low VRAM (i.e. RTX 3070).
+
+      -> Using a scale slightly above 1.0 will cause Nixxes ports to keep more
+           in VRAM and page textures in/out of system memory less often.
+
+24.9.17
+=======
+ + Disable tearing when using a VRR screen w/ DLSS3 Frame Generation,
+     so that FG can use G-Sync instead of ... randomly tear :)
+
+24.9.16.2
+=========
+ + Improved precision of real-time VRR refresh rate calculation
+ + Restored the gray bars of "animation error" (as PresentMon calls it)
+     to users with drivers that support HW GPU Scheduling + HW Flip Queue
+
+24.9.16.1
+=========
+ + Added explicit DwmFlush (...) on a dedicated thread to sample DXGI's
+     VBLANK timing information so that it doesn't wobble on drivers that
+       support HW Flip Queue.
+
+ + Added CPU affinity INI option
+
+     [Scheduler.System]
+     ProcessorAffinityMask=[1,0xFFFFFFFFFFFFFFFF] Default=0xFFFFFFFFFFFFFFFF
+
+    This is a bitmask, so map out the processor numbers you want in binary
+      and then convert to decimal.
+
+      (i.e. ProcessorAffinityMask=1365  ->  10101010101  (6 physical cores))
+
+24.9.16
 =======
  + Reduced overhead and added smoothing to real-time VRR Rate calculation
 

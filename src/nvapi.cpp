@@ -1193,7 +1193,7 @@ NvAPI_Disp_HdrColorControl_Override ( NvU32              displayId,
 }
 
 bool
-SK_RenderBackend_V2::output_s::nvapi_ctx_s::vblank_history_s::addRecord (NvDisplayHandle nv_disp, DXGI_FRAME_STATISTICS* pFrameStats, NvU32 tNow) noexcept
+SK_RenderBackend_V2::output_s::nvapi_ctx_s::vblank_history_s::addRecord (NvDisplayHandle nv_disp, DXGI_FRAME_STATISTICS* pFrameStats, NvU64 tNow) noexcept
 {
   const SK_RenderBackend& rb =
     SK_GetCurrentRenderBackend ();
@@ -1232,11 +1232,11 @@ SK_RenderBackend_V2::output_s::nvapi_ctx_s::vblank_history_s::addRecord (NvDispl
 
   if (bHasVBlankCount)
   {
-    last_polled_time = tNow;
+    last_polled_time = SK::ControlPanel::current_time;
 
     head = std::min (head, (NvU32)MaxVBlankRecords-1);
 
-    if (vblank_count != records [head].vblank_count)
+    if (vblank_count > records [head].vblank_count)
     {
       if ( head == MaxVBlankRecords-1 )
            head  = 0;
@@ -1256,51 +1256,47 @@ SK_RenderBackend_V2::output_s::nvapi_ctx_s::vblank_history_s::resetStats (void) 
 {
   for (auto& record : records)
   {
-    record.timestamp_ms = 0;
-    record.vblank_count = 0;
+    record.timestamp_qpc = 0;
+    record.vblank_count  = 0;
   }
-  head                  = 0;
-  last_qpc_refreshed    = 0;
-  last_frame_sampled    = 0;
-  last_polled_time      = 0;
+  head                   = 0;
+  last_qpc_refreshed     = 0;
+  last_frame_sampled     = 0;
+  last_polled_time       = 0;
 }
 
 float
-SK_RenderBackend_V2::output_s::nvapi_ctx_s::vblank_history_s::getVBlankHz (NvU32 tNow) noexcept
+SK_RenderBackend_V2::output_s::nvapi_ctx_s::vblank_history_s::getVBlankHz (NvU64 tNow) noexcept
 {
-  auto *pLimiter =
-    SK::Framerate::GetLimiter (SK_GetCurrentRenderBackend ().swapchain, false);
-
-  // We need to trigger snapshot statistics in order to collect VBlank stats
-  //   required to show VRR effective refresh rate.
-  if (pLimiter != nullptr)
-      pLimiter->frame_history_snapshots->frame_history.calcPercentile (0.0, { 0UL, 0L });
-
   NvU32 num_vblanks_in_period = 0;
 
-  NvU32 vblank_count_min = UINT32_MAX,
+  NvU64 vblank_count_min = UINT64_MAX,
         vblank_count_max = 0;
 
-  NvU32 vblank_t0        = UINT32_MAX,
+  NvU64 vblank_t0        = UINT64_MAX,
         vblank_n         = 0;
 
-  for ( UINT record_idx = 0                ;
-             record_idx < MaxVBlankRecords ;
-           ++record_idx )
-  {
-    const auto& record =
-                records [record_idx];
+  static constexpr auto
+    _MaxWindowSizeInMs = 750UL;
 
-    if ( record.timestamp_ms != 0 &&
-         record.timestamp_ms >= (tNow - 750) ) // Use the 3/4 of a second
+  for (const auto& record : records)
+  {
+    if (vblank_t0 > record.timestamp_qpc &&
+                    record.timestamp_qpc >= tNow - SK_QpcTicksPerMs * _MaxWindowSizeInMs)
+        vblank_t0 = record.timestamp_qpc;
+  }
+
+  if (vblank_t0 > tNow)
+      vblank_t0 = tNow;
+
+  for (const auto& record : records)
+  {
+    if (record.timestamp_qpc >= vblank_t0)
     {
       ++num_vblanks_in_period;
 
-      if (       vblank_t0 > record.timestamp_ms)
-                 vblank_t0 = record.timestamp_ms;
-
-      if (        vblank_n < record.timestamp_ms)
-                  vblank_n = record.timestamp_ms;
+      if (vblank_n < record.timestamp_qpc)
+          vblank_n = record.timestamp_qpc;
 
       if (vblank_count_min > record.vblank_count)
           vblank_count_min = record.vblank_count;
@@ -1315,49 +1311,54 @@ SK_RenderBackend_V2::output_s::nvapi_ctx_s::vblank_history_s::getVBlankHz (NvU32
     return 0.0f;
 
   // Apply smoothing because these numbers are hyperactive
-  float new_average = static_cast <float> (
-                      static_cast <double> (vblank_count_max - vblank_count_min) /
-             (0.001 * static_cast <double> (vblank_n         - vblank_t0))
-                                          );
+  float new_average =
+    static_cast <float> (
+    static_cast <double> (vblank_count_max - vblank_count_min) /
+   (static_cast <double> (vblank_n         - vblank_t0)        /
+    static_cast <double> (SK_QpcFreq)));
 
   // Keep imaginary numbers out of the data set...
   if (vblank_n - vblank_t0 == 0)
     new_average = 0.0f;
 
-  auto& rb =
+  const auto& rb =
     SK_GetCurrentRenderBackend ();
 
-  float _MaxExpectedRefresh =
-    static_cast <float> (
-      static_cast <double> (rb.displays [rb.active_display].signal.timing.vsync_freq.Numerator) /
-      static_cast <double> (rb.displays [rb.active_display].signal.timing.vsync_freq.Denominator)
-    );
+  const auto& signal_timing =
+    rb.displays [rb.active_display].signal.timing;
 
-  if (     last_average > _MaxExpectedRefresh) last_average      = _MaxExpectedRefresh * 1.01f;
-  if (last_last_average > _MaxExpectedRefresh) last_last_average = _MaxExpectedRefresh * 1.01f;
-  if (      new_average > _MaxExpectedRefresh) new_average       = _MaxExpectedRefresh * 1.01f;
+  const double _MaxExpectedRefreshDbl =
+      static_cast <double> (signal_timing.vsync_freq.Numerator) /
+      static_cast <double> (signal_timing.vsync_freq.Denominator);
+
+  const float _MaxExpectedRefresh =
+    static_cast <float> (_MaxExpectedRefreshDbl);
+
+       last_average = std::min (     last_average, _MaxExpectedRefresh);
+  last_last_average = std::min (last_last_average, _MaxExpectedRefresh);
+        new_average = std::min (      new_average, _MaxExpectedRefresh);
 
   if (last_average != 0.0f)
   {
     // Weighted rolling-average because this is really jittery
     new_average =
-      (1.0f * last_average + 5.0f * new_average + 2.5f * last_last_average) / 8.5f;
+      (2.0f * last_average + 7.5f * new_average + 0.5f * last_last_average) * 0.1f;
   }
 
   last_last_average = last_average;
   last_average      = new_average;
 
-  static DWORD dwLastUpdate = tNow;
+  static DWORD dwLastUpdate = SK::ControlPanel::current_time;
   static float fLastAverage = last_average;
   
-  if (dwLastUpdate < tNow - 266)
-  {   dwLastUpdate = tNow;
+  if (dwLastUpdate < SK::ControlPanel::current_time - 150)
+  {   dwLastUpdate = SK::ControlPanel::current_time;
 
     float fNewAverage =
-      (fLastAverage + 3 * last_average) / 4.0f;
+      (3.0f * fLastAverage + 7.0f * last_average) * 0.1f;
 
     if (fNewAverage > _MaxExpectedRefresh)
-        fNewAverage = _MaxExpectedRefresh * 1.01f;
+        fNewAverage = _MaxExpectedRefresh;
 
     fLastAverage = fNewAverage;
   }

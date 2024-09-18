@@ -282,15 +282,16 @@ SK_GetCurrentGameID (void)
         if ( StrStrIW ( SK_GetHostApp (), L"ffxv_" ) )
         {
           current_game = SK_GAME_ID::FinalFantasyXV;
-
-          SK_FFXV_InitPlugin ();
         }
 
         else if ( StrStrIW ( SK_GetHostApp (), L"ffxvi" ) )
         {
-          current_game = SK_GAME_ID::FinalFantasyXVI;
+          // Streamline shenanigans
+          config.compatibility.init_sync_for_streamline = true;
+          config.render.dxgi.fake_fullscreen_mode       = true;
+          config.render.dstorage.submit_threads         = 2;
 
-          SK_FFXVI_InitPlugin ();
+          current_game = SK_GAME_ID::FinalFantasyXVI;
         }
       }
 
@@ -912,6 +913,8 @@ struct {
     sk::ParameterBool*    disable_telemetry       = nullptr;
     sk::ParameterBool*    disable_gpu_decomp      = nullptr;
     sk::ParameterBool*    force_file_buffering    = nullptr;
+    sk::ParameterInt*     submit_threads          = nullptr;
+    sk::ParameterInt*     cpu_decomp_threads      = nullptr;
   } dstorage;
 
   struct {
@@ -1125,6 +1128,7 @@ struct {
     sk::ParameterBool*    highest_priority        = nullptr;
     sk::ParameterBool*    deny_foreign_change     = nullptr;
     sk::ParameterInt*     min_render_priority     = nullptr;
+    sk::ParameterInt64*   cpu_affinity_mask       = nullptr;
   } priority;
 } scheduling;
 
@@ -1937,6 +1941,8 @@ auto DeclKeybind =
     ConfigEntry (render.dstorage.disable_telemetry,      L"Disable DirectStorage Telemetry",                           dll_ini,         L"Render.DStorage",       L"DisableTelemetry"),
     ConfigEntry (render.dstorage.disable_gpu_decomp,     L"Disable DirectStorage (1.2) GPU Decompression",             dll_ini,         L"Render.DStorage",       L"DisableGPUDecompression"),
     ConfigEntry (render.dstorage.force_file_buffering,   L"Force DirectStorage File Buffering",                        dll_ini,         L"Render.DStorage",       L"ForceFileBuffering"),
+    ConfigEntry (render.dstorage.submit_threads,         L"Override default number of DirectStorage Submit threads",   dll_ini,         L"Render.DStorage",       L"NumberOfSubmitThreads"),
+    ConfigEntry (render.dstorage.cpu_decomp_threads,     L"Override default number of CPU Decompression threads",      dll_ini,         L"Render.DStorage",       L"NumberOfCPUDecompThreads"),
 
     ConfigEntry (texture.d3d9.clamp_lod_bias,            L"Clamp Negative LOD Bias",                                   dll_ini,         L"Textures.D3D9",         L"ClampNegativeLODBias"),
     ConfigEntry (texture.d3d11.cache,                    L"Cache Textures",                                            dll_ini,         L"Textures.D3D11",        L"Cache"),
@@ -2005,6 +2011,7 @@ auto DeclKeybind =
     ConfigEntry (scheduling.priority.highest_priority,   L"Boost process priority to High instead of Above Normal",    dll_ini,         L"Scheduler.Boost",       L"RaisePriorityToHigh"),
     ConfigEntry (scheduling.priority.deny_foreign_change,L"Do not allow third-party apps to change priority",          dll_ini,         L"Scheduler.Boost",       L"DenyForeignChanges"),
     ConfigEntry (scheduling.priority.min_render_priority,L"Minimum priority for a game's render thread",               dll_ini,         L"Scheduler.Boost",       L"MinimumRenderThreadPriority"),
+    ConfigEntry (scheduling.priority.cpu_affinity_mask,  L"Mask of CPU cores the process is eligible for scheduling.", dll_ini,         L"Scheduler.System",      L"ProcessorAffinityMask"),
 
     ConfigEntry (sound.minimize_latency,                 L"Minimize Audio Latency while Game is Running",              dll_ini,         L"Sound.Mixing",          L"MinimizeLatency"),
 
@@ -2825,6 +2832,10 @@ auto DeclKeybind =
 
       case SK_GAME_ID::BaldursGate3:
       {
+        // Game has native support for DualSense, but not DualSense Edge
+        config.input.gamepad.scepad.hide_ds_edge_pid = true;
+        config.input.gamepad.xinput.emulate          = false;
+
         // The Vulkan executable is simply bg3.exe,
         //   D3D11 is bg3_dx11.exe
         bool bVulkan =
@@ -4103,6 +4114,12 @@ auto DeclKeybind =
   scheduling.priority.highest_priority->load    (config.priority.highest_priority);
   scheduling.priority.deny_foreign_change->load (config.priority.deny_foreign_change);
   scheduling.priority.min_render_priority->load (config.priority.minimum_render_prio);
+  scheduling.priority.cpu_affinity_mask->load   (config.priority.cpu_affinity_mask);
+
+  if (config.priority.cpu_affinity_mask != 0xFFFFFFFFULL)
+  {
+    SetProcessAffinityMask (GetCurrentProcess (), (DWORD_PTR)config.priority.cpu_affinity_mask);
+  }
 
   if (config.priority.raise_always)
     SetPriorityClass (GetCurrentProcess (), ABOVE_NORMAL_PRIORITY_CLASS);
@@ -4348,6 +4365,9 @@ auto DeclKeybind =
                                     load (config.render.dstorage.disable_gpu_decomp);
   render.dstorage.force_file_buffering->
                                     load (config.render.dstorage.force_file_buffering);
+  render.dstorage.submit_threads->  load (config.render.dstorage.submit_threads);
+  render.dstorage.cpu_decomp_threads->
+                                    load (config.render.dstorage.cpu_decomp_threads);
 
   texture.d3d11.cache->load              (config.textures.d3d11.cache);
   texture.d3d11.use_l3_hash->load        (config.textures.d3d11.use_l3_hash);
@@ -6091,6 +6111,7 @@ SK_SaveConfig ( std::wstring name,
     scheduling.priority.highest_priority->store    (config.priority.highest_priority);
     scheduling.priority.deny_foreign_change->store (config.priority.deny_foreign_change);
     scheduling.priority.min_render_priority->store (config.priority.minimum_render_prio);
+    scheduling.priority.cpu_affinity_mask->store   (config.priority.cpu_affinity_mask);
 
     if (render.framerate.rescan_ratio != nullptr)
     {
@@ -6316,6 +6337,9 @@ SK_SaveConfig ( std::wstring name,
                                         store (config.render.dstorage.disable_gpu_decomp);
       render.dstorage.force_file_buffering->
                                         store (config.render.dstorage.force_file_buffering);
+      render.dstorage.submit_threads->  store (config.render.dstorage.submit_threads);
+      render.dstorage.cpu_decomp_threads->
+                                        store (config.render.dstorage.cpu_decomp_threads);
     }
 
     if ( SK_IsInjected () || ( SK_GetDLLRole () & DLL_ROLE::D3D9    ) ||
