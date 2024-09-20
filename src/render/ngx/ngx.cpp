@@ -40,14 +40,11 @@ bool
 SK_NGX_IsUsingDLSS (void)
 {
   const auto& dlss_ss =
-    SK_NGX_DLSS12.super_sampling;
+    (SK_NGX_DLSS12.apis_called    ?
+     SK_NGX_DLSS12.super_sampling : SK_NGX_DLSS11.super_sampling);
 
-  if (SK_NGX_DLSS12.apis_called != false)
-    return                 dlss_ss.Handle     != nullptr                &&
-      ReadULong64Acquire (&dlss_ss.LastFrame) >= SK_GetFramesDrawn () - 8;
-  else
-    return                 dlss_ss.Handle     != nullptr                &&
-      ReadULong64Acquire (&dlss_ss.LastFrame) >= SK_GetFramesDrawn () - 8;
+  return                 dlss_ss.Handle     != nullptr                &&
+    ReadULong64Acquire (&dlss_ss.LastFrame) >= SK_GetFramesDrawn () - 8;
 }
 
 bool
@@ -117,19 +114,26 @@ NVSDK_NGX_Parameter_SetF_Detour (NVSDK_NGX_Parameter* InParameter, const char* I
 
   if (! strcmp (InName, NVSDK_NGX_Parameter_FrameTimeDeltaInMsec))
   {
-    const SK_RenderBackend_V2 &rb =
-      SK_GetCurrentRenderBackend ();
+    if (config.nvidia.dlss.calculate_delta_ms)
+    {
+      const SK_RenderBackend_V2 &rb =
+        SK_GetCurrentRenderBackend ();
 
-    const double dFrameTimeDeltaInMsec =
-      1000.0 * ( static_cast <double> (rb.frame_delta.getDeltaTime ()) /
-                 static_cast <double> (SK_QpcFreq) ) * SK_NGX_IsUsingDLSS_G () ? 2.0
-                                                                               : 1.0;
+      const double dFrameTimeDeltaInMsec =
+        1000.0 * ( static_cast <double> (rb.frame_delta.getDeltaTime ()) /
+                   static_cast <double> (SK_QpcFreq) ) * SK_NGX_IsUsingDLSS_G () ? 2.0
+                                                                                 : 1.0;
 
-    NVSDK_NGX_Parameter_SetD_Original (InParameter, InName, dFrameTimeDeltaInMsec);
+      NVSDK_NGX_Parameter_SetD_Original (InParameter, InName, dFrameTimeDeltaInMsec);
+    }
 
+    else
+    {
+      NVSDK_NGX_Parameter_SetD_Original (InParameter, InName, InValue);
 #if 0
     SK_LOGi0 (L"Frame Time Delta: Game=%f, SK=%f -- %f difference", InValue, dFrameTimeDeltaInMsec, fabs (InValue - dFrameTimeDeltaInMsec));
 #endif
+    }
 
     return;
   }
@@ -170,19 +174,27 @@ NVSDK_NGX_Parameter_SetD_Detour (NVSDK_NGX_Parameter* InParameter, const char* I
 
   if (! strcmp (InName, NVSDK_NGX_Parameter_FrameTimeDeltaInMsec))
   {
-    const SK_RenderBackend_V2 &rb =
-      SK_GetCurrentRenderBackend ();
+    if (config.nvidia.dlss.calculate_delta_ms)
+    {
+      const SK_RenderBackend_V2 &rb =
+        SK_GetCurrentRenderBackend ();
 
-    const double dFrameTimeDeltaInMsec =
-      1000.0 * ( static_cast <double> (rb.frame_delta.getDeltaTime ()) /
-                 static_cast <double> (SK_QpcFreq) ) * SK_NGX_IsUsingDLSS_G () ? 2.0
-                                                                               : 1.0;
+      const double dFrameTimeDeltaInMsec =
+        1000.0 * ( static_cast <double> (rb.frame_delta.getDeltaTime ()) /
+                   static_cast <double> (SK_QpcFreq) ) * SK_NGX_IsUsingDLSS_G () ? 2.0
+                                                                                 : 1.0;
 
-    NVSDK_NGX_Parameter_SetD_Original (InParameter, InName, dFrameTimeDeltaInMsec);
+      NVSDK_NGX_Parameter_SetD_Original (InParameter, InName, dFrameTimeDeltaInMsec);
 
 #if 0
-    SK_LOGi0 (L"Frame Time Delta: Game=%f, SK=%f -- %f difference", InValue, dFrameTimeDeltaInMsec, fabs (InValue - dFrameTimeDeltaInMsec));
+      SK_LOGi0 (L"Frame Time Delta: Game=%f, SK=%f -- %f difference", InValue, dFrameTimeDeltaInMsec, fabs (InValue - dFrameTimeDeltaInMsec));
 #endif
+    }
+
+    else
+    {
+      NVSDK_NGX_Parameter_SetD_Original (InParameter, InName, InValue);
+    }
 
     return;
   }

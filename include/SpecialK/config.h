@@ -1014,6 +1014,7 @@ struct sk_config_t
       bool    allow_scrgb         =   true; // Use Compute Copy HDR10 <--> scRGB
       bool    dump_buffers        =  false;
       bool    spoof_support       =  false;
+      bool    calculate_delta_ms  =  false;
     } dlss;
     struct misc_s {
       int     force_rebar         = SK_NoPreference;
@@ -1319,6 +1320,7 @@ struct sk_config_t
     bool    central_repository  = false;
     bool    wait_for_debugger   = false;
     bool    return_to_skif      = false;
+    bool    auto_load_asi_files = false;
   } system;
 
   struct priority_scheduling_s {

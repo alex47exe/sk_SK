@@ -1295,6 +1295,19 @@ SleepEx_Detour (DWORD dwMilliseconds, BOOL bAlertable)
                          return WAIT_IO_COMPLETION;
   }
 
+  static const bool bFFXVI =
+    (SK_GetCurrentGameID () == SK_GAME_ID::FinalFantasyXVI);
+
+  if (bFFXVI)
+  {
+    static thread_local uint64_t sleeps_skipped = 0;
+    if (                         sleeps_skipped++ % 3 == 0 )
+    {
+      return
+        SK_SleepEx (dwMilliseconds, bAlertable);
+    }
+  }
+
   return 0;
 }
 
