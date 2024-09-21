@@ -50,14 +50,13 @@ D3D12CommandQueue_ExecuteCommandLists_Detour (
     queueDesc = This->GetDesc ();
 
   if ( pLazyD3D12Chain  != nullptr &&
-       pLazyD3D12Device != nullptr )
+       pLazyD3D12Device != nullptr && queueDesc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT )
   {
-    if (! std::exchange (once, true))
+    if ((! std::exchange (once, true)) && rb.d3d12.command_queue.p == nullptr)
     {
       SK_ComPtr <ID3D12Device> pDevice12;
 
-      if ( queueDesc.Type == D3D12_COMMAND_LIST_TYPE_DIRECT &&
-           SUCCEEDED (   This->GetDevice (
+      if ( SUCCEEDED (   This->GetDevice (
                            IID_ID3D12Device,
                           (void **)&pDevice12.p
                                          ) // We are not holding a ref, so test pointers before using
@@ -67,7 +66,7 @@ D3D12CommandQueue_ExecuteCommandLists_Detour (
                  pLazyD3D12Device                 )
          )
       {
-        if (rb.d3d12.command_queue == nullptr)
+        if (rb.d3d12.command_queue.p == nullptr)
         {
           SK_ComPtr <ID3D12Device>       pDevice;
           SK_ComPtr <IDXGISwapChain>     pSwapChain;
@@ -188,7 +187,7 @@ _InstallCommandQueueHooksImpl (ID3D12Device* pDevice12)
     return;
 
   const bool bHasStreamline =
-    SK_IsModuleLoaded (L"sl.dlss_g.dll");
+    SK_IsModuleLoaded (L"sl.interposer.dll");
 
   SK_ComPtr <ID3D12Device> pDev12;
 
@@ -213,8 +212,22 @@ _InstallCommandQueueHooksImpl (ID3D12Device* pDevice12)
   }
 }
 
-void
+bool
 SK_D3D12_InstallCommandQueueHooks (ID3D12Device *pDev12)
 {
-  SK_RunOnce (_InstallCommandQueueHooksImpl (pDev12));
+  static bool s_Init = false;
+
+  // Check the status of hooks
+  if (pDev12 == nullptr)
+    return s_Init;
+
+  // Actually install hooks... once.
+  if (! std::exchange (s_Init, true))
+  {
+    _InstallCommandQueueHooksImpl (pDev12);
+
+    return true;
+  }
+
+  return false;
 }
