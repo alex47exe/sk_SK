@@ -477,6 +477,21 @@ SK_FFXVI_PresentFirstFrame (IUnknown* pSwapChain, UINT SyncInterval, UINT Flags)
       }
     }
 
+    SK_SetWindowLongPtrW (  game_window.hWnd, GWL_STYLE,
+      SK_GetWindowLongPtrW (game_window.hWnd, GWL_STYLE) | WS_VISIBLE      | WS_POPUP
+                                                         | WS_MINIMIZEBOX  | WS_SYSMENU
+                                                         | WS_CLIPCHILDREN | WS_CLIPSIBLINGS );
+
+    SK_SetWindowLongPtrW (  game_window.hWnd, GWL_EXSTYLE,
+      SK_GetWindowLongPtrW (game_window.hWnd, GWL_EXSTYLE) | WS_EX_APPWINDOW | WS_EX_NOREDIRECTIONBITMAP |
+                                                             WS_EX_WINDOWEDGE );
+
+    SK_SetWindowPos ( game_window.hWnd,
+                           SK_HWND_TOP,
+                    0, 0,
+                    0, 0,  SWP_NOZORDER     | SWP_NOREPOSITION | SWP_NOSIZE | SWP_NOMOVE |
+                           SWP_FRAMECHANGED | SWP_NOACTIVATE   | SWP_NOSENDCHANGING | SWP_ASYNCWINDOWPOS );
+
     config.utility.save_async ();
 
     SK_Thread_CloseSelf ();
@@ -666,13 +681,6 @@ SK_FFXVI_PlugInCfg (void)
 
       ImGui::EndGroup ();
 
-      if (restart_warning)
-      {
-        ImGui::PushStyleColor (ImGuiCol_Text, ImColor::HSV (.3f, .8f, .9f).Value);
-        ImGui::BulletText     ("Game Restart May Be Required");
-        ImGui::PopStyleColor  ();
-      }
-
       if (ImGui::Checkbox ("Aggressive Anti-Stutter", &SK_FFXVI_ActiveAntiStutter))
       {
         if (SK_FFXVI_ActiveAntiStutter)
@@ -701,6 +709,37 @@ SK_FFXVI_PlugInCfg (void)
           "these threads sleep for short intervals instead of being signaled "
           "when they have actual work to do..."
         );
+      }
+
+      if (ImGui::Checkbox ("Force Anisotropic Filtering", &config.render.d3d12.force_anisotropic))
+      {
+        restart_warning = true;
+
+        config.utility.save_async ();
+      }
+
+      if (ImGui::IsItemHovered ())
+          ImGui::SetTooltip ("Upgrade standard bilinear or trilinear filtering to anisotropic");
+
+      ImGui::SameLine ();
+
+      if (ImGui::SliderInt ("Anistropic Level", &config.render.d3d12.max_anisotropy, -1, 16,
+                                                 config.render.d3d12.max_anisotropy > 0 ? "%dx" : "Game Default (8x)"))
+      {
+        restart_warning = true;
+
+        config.utility.save_async ();
+      }
+
+      if (ImGui::IsItemHovered ())
+          ImGui::SetTooltip ("Force maximum anisotropic filtering level, for native anisotropic "
+                             "filtered render passes as well as any forced.");
+
+      if (restart_warning)
+      {
+        ImGui::PushStyleColor (ImGuiCol_Text, ImColor::HSV (.3f, .8f, .9f).Value);
+        ImGui::BulletText     ("Game Restart May Be Required");
+        ImGui::PopStyleColor  ();
       }
 
       ImGui::TreePop ();
