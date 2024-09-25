@@ -290,6 +290,9 @@ SK_GetCurrentGameID (void)
           // Streamline shenanigans
           config.compatibility.init_sync_for_streamline = true;
 
+          // Game has native PlayStation support
+          config.input.gamepad.xinput.emulate = false;
+
           config.render.dxgi.fake_fullscreen_mode       = true;
           config.render.dstorage.submit_threads         = 2;
           config.system.auto_load_asi_files             = true;
@@ -939,6 +942,7 @@ struct {
   struct {
     sk::ParameterInt*     max_anisotropy          = nullptr;
     sk::ParameterBool*    force_anisotropic       = nullptr;
+    sk::ParameterFloat*   force_lod_bias          = nullptr;
   } d3d12;
 
   struct {
@@ -1155,6 +1159,7 @@ struct {
   sk::ParameterBool*      async_init              = nullptr;
   sk::ParameterBool*      reshade_mode            = nullptr;
   sk::ParameterBool*      fsr3_mode               = nullptr;
+  sk::ParameterBool*      allow_fake_streamline   = nullptr;
 } compatibility;
 
 struct {
@@ -1747,6 +1752,7 @@ auto DeclKeybind =
     ConfigEntry (compatibility.async_init,               L"Runs hook initialization on a separate thread; high safety",dll_ini,         L"Compatibility.General", L"AsyncInit"),
     ConfigEntry (compatibility.reshade_mode,             L"Initializes hooks in a way that ReShade will not interfere",dll_ini,         L"Compatibility.General", L"ReShadeMode"),
     ConfigEntry (compatibility.fsr3_mode,                L"Avoid hooks on CreateSwapChainForHwnd",                     dll_ini,         L"Compatibility.General", L"FSR3Mode"),
+    ConfigEntry (compatibility.allow_fake_streamline,    L"Allow invalid stuff, that might let fake DLSS3 mods work.", dll_ini,         L"Compatibility.General", L"AllowFakeStreamline"),
 
     ConfigEntry (apis.last_known,                        L"Last Known Render API",                                     dll_ini,         L"API.Hook",              L"LastKnown"),
 
@@ -1949,6 +1955,7 @@ auto DeclKeybind =
 
     ConfigEntry (render.d3d12.max_anisotropy,            L"Maximum Anisotropic Filter Level",                          dll_ini,         L"Render.D3D12",          L"MaxAnisotropy"),
     ConfigEntry (render.d3d12.force_anisotropic,         L"Forced Anisotropic Filtering",                              dll_ini,         L"Render.D3D12",          L"ForceAnisotropic"),
+    ConfigEntry (render.d3d12.force_lod_bias,            L"Forced LOD Bias",                                           dll_ini,         L"Render.D3D12",          L"ForceLODBias"),
 
     ConfigEntry (render.dstorage.disable_bypass_io,      L"Disable DirectStorage BypassIO",                            dll_ini,         L"Render.DStorage",       L"DisableBypassIO"),
     ConfigEntry (render.dstorage.disable_telemetry,      L"Disable DirectStorage Telemetry",                           dll_ini,         L"Render.DStorage",       L"DisableTelemetry"),
@@ -2915,6 +2922,9 @@ auto DeclKeybind =
         config.apis.OpenGL.hook          = false;
         config.apis.d3d9.hook            = false;
         config.apis.d3d9ex.hook          = false;
+
+        // Game now has native PlayStation support
+        config.input.gamepad.xinput.emulate = false;
       } break;
 
       case SK_GAME_ID::PathOfExile:
@@ -3001,6 +3011,28 @@ auto DeclKeybind =
 
       case SK_GAME_ID::HorizonForbiddenWest:
       {
+        if (SK_IsInjected () && ((! PathFileExists (L"dxgi.dll")) &&
+                                 (! PathFileExists (L"d3d12.dll"))))
+        {
+          wchar_t      wszProfileSKinny [MAX_PATH] = {};
+          PathAppendW (wszProfileSKinny, SK_GetConfigPath ());
+          PathAppendW (wszProfileSKinny,    L"SKinny.ignore");
+
+          if (! (PathFileExists (L"SKinny.ignore") ||
+                 PathFileExists (wszProfileSKinny)))
+          {
+            if (IDYES ==
+                SK_MessageBox (
+                  L"Special K has Compatibility Issues with this Game\r\n\r\n"
+                  L" * Please use Local Injection or SKinny\r\n\r\n"
+                  L"Click Yes for more info on SKinny.", L"Special K Incompatibility",
+                    MB_YESNO|MB_ICONWARNING))
+            {
+              SK_Util_OpenURI (L"https://github.com/SpecialKO/SKinny/releases", SW_RESTORE);
+            }
+          }
+        }
+
         bool bSteam = false,
              bEpic  = false;
 
@@ -3488,6 +3520,28 @@ auto DeclKeybind =
 
       case SK_GAME_ID::ForzaHorizon5:
       {
+        if (SK_IsInjected () && ((! PathFileExists (L"dxgi.dll")) &&
+                                 (! PathFileExists (L"d3d12.dll"))))
+        {
+          wchar_t      wszProfileSKinny [MAX_PATH] = {};
+          PathAppendW (wszProfileSKinny, SK_GetConfigPath ());
+          PathAppendW (wszProfileSKinny,    L"SKinny.ignore");
+
+          if (! (PathFileExists (L"SKinny.ignore") ||
+                 PathFileExists (wszProfileSKinny)))
+          {
+            if (IDYES ==
+                SK_MessageBox (
+                  L"Special K has Compatibility Issues with this Game\r\n\r\n"
+                  L" * Please use Local Injection or SKinny\r\n\r\n"
+                  L"Click Yes for more info on SKinny.", L"Special K Incompatibility",
+                    MB_YESNO|MB_ICONWARNING))
+            {
+              SK_Util_OpenURI (L"https://github.com/SpecialKO/SKinny/releases", SW_RESTORE);
+            }
+          }
+        }
+
         // Prevent VRR disable when using game's framerate limiter
         config.render.framerate.sync_interval_clamp = 1;
 
@@ -3594,6 +3648,8 @@ auto DeclKeybind =
         // Work-around anti-cheat
         config.compatibility.disable_debug_features =  true;
         config.system.handle_crashes                = false;
+        // Game has native PlayStation support
+        config.input.gamepad.xinput.emulate         = false;
         break;
 
       case SK_GAME_ID::FinalFantasyXIV:
@@ -3619,6 +3675,10 @@ auto DeclKeybind =
 
       // Pain in the ass Nixxes port
       case SK_GAME_ID::RatchetAndClank_RiftApart:
+        // Game has native PlayStation support
+        config.input.gamepad.xinput.emulate        = false;
+        config.compatibility.allow_fake_streamline = false;
+        // Workaround Nixxes quirks
         break;
 
       case SK_GAME_ID::BatmanArkhamKnight:
@@ -3639,6 +3699,11 @@ auto DeclKeybind =
         apis.last_known->store     ((int)config.apis.last_known     );
         apis.OpenGL.hook->store    (     config.apis.OpenGL.hook    );
         apis.d3d11.hook->store     (     config.apis.dxgi.d3d11.hook);
+        break;
+
+      case SK_GAME_ID::Cyberpunk2077:
+        // Game now has native PlayStation support
+        config.input.gamepad.xinput.emulate = false;
         break;
 
       case SK_GAME_ID::DOOMEternal:
@@ -3732,12 +3797,20 @@ auto DeclKeybind =
 
       case SK_GAME_ID::GodOfWar:
       {
-        // Prevent crashes in the Steam and GOG versions of the game
-        config.compatibility.allow_dxdiagn = false;
+        // Game has native PlayStation support
+        config.input.gamepad.xinput.emulate = false;
       } break;
 
       case SK_GAME_ID::GodOfWarRagnarok:
       {
+        // Game has native PlayStation support
+        config.input.gamepad.xinput.emulate = false;
+        // Window management tweaks to assist this game in keeping
+        //   the Windows task bar away in borderless mode
+        config.window.always_on_top     = SmartAlwaysOnTop;
+        config.window.center            = true;
+        config.window.borderless        = true;
+        config.window.background_render = true;
       } break;
 
       case SK_GAME_ID::TalosPrinciple2:
@@ -3812,13 +3885,14 @@ auto DeclKeybind =
   //
   // Load Parameters
   //
-  compatibility.fsr3_mode->load          (config.compatibility.fsr3_mode);
-  compatibility.reshade_mode->load       (config.compatibility.reshade_mode);
-  compatibility.async_init->load         (config.compatibility.init_on_separate_thread);
-  compatibility.disable_nv_bloat->load   (config.compatibility.disable_nv_bloat);
-  compatibility.rehook_loadlibrary->load (config.compatibility.rehook_loadlibrary);
-  compatibility.using_wine->load         (config.compatibility.using_wine);
-  compatibility.allow_dxdiagn->load      (config.compatibility.allow_dxdiagn);
+  compatibility.allow_fake_streamline->load (config.compatibility.allow_fake_streamline);
+  compatibility.fsr3_mode->load             (config.compatibility.fsr3_mode);
+  compatibility.reshade_mode->load          (config.compatibility.reshade_mode);
+  compatibility.async_init->load            (config.compatibility.init_on_separate_thread);
+  compatibility.disable_nv_bloat->load      (config.compatibility.disable_nv_bloat);
+  compatibility.rehook_loadlibrary->load    (config.compatibility.rehook_loadlibrary);
+  compatibility.using_wine->load            (config.compatibility.using_wine);
+  compatibility.allow_dxdiagn->load         (config.compatibility.allow_dxdiagn);
 
 #ifdef _M_IX86
   compatibility.auto_large_address->load (config.compatibility.auto_large_address_patch);
@@ -4378,6 +4452,10 @@ auto DeclKeybind =
 
   render.d3d12.max_anisotropy->load      (config.render.d3d12.max_anisotropy);
   render.d3d12.force_anisotropic->load   (config.render.d3d12.force_anisotropic);
+  render.d3d12.force_lod_bias->load      (config.render.d3d12.force_lod_bias);
+
+  config.render.d3d12.force_lod_bias = // TODO: What are the actual limits?
+    std::clamp (config.render.d3d12.force_lod_bias, -32.0f, 32.0f);
 
   render.dstorage.disable_bypass_io->load(config.render.dstorage.disable_bypass_io);
   render.dstorage.disable_telemetry->load(config.render.dstorage.disable_telemetry);
@@ -5763,6 +5841,7 @@ SK_SaveConfig ( std::wstring name,
   compatibility.rehook_loadlibrary->store     (config.compatibility.rehook_loadlibrary);
   compatibility.using_wine->store             (config.compatibility.using_wine);
   compatibility.allow_dxdiagn->store          (config.compatibility.allow_dxdiagn);
+  compatibility.allow_fake_streamline->store  (config.compatibility.allow_fake_streamline);
 
 #ifdef _M_IX86
   compatibility.auto_large_address->store     (config.compatibility.auto_large_address_patch);
@@ -6369,6 +6448,7 @@ SK_SaveConfig ( std::wstring name,
 
       render.d3d12.max_anisotropy->store      (config.render.d3d12.max_anisotropy);
       render.d3d12.force_anisotropic->store   (config.render.d3d12.force_anisotropic);
+      render.d3d12.force_lod_bias->store      (config.render.d3d12.force_lod_bias);
 
       render.dstorage.disable_bypass_io->store(config.render.dstorage.disable_bypass_io);
       render.dstorage.disable_telemetry->store(config.render.dstorage.disable_telemetry);

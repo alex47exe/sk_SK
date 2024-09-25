@@ -1,4 +1,77 @@
-﻿24.9.25
+﻿24.9.25.7
+=========
+ + Fixed forced 10-bpc being applied to AMD's Vulkan interop; it is a compat.
+     hack for NVIDIA's interop-only and does not work on AMD's driver.
+ + Do not list XInput slot# for UI controller in the Input Management section
+     of the control panel when only a PlayStation controller is attached.
+ + Revert back to asynchronous initialization by default for Streamline games,
+     unless the new AllowFakeStreamline setting is set to false.
+ + Force AllowFakeStreamline OFF in Ratchet & Clank
+ + Added crash_handler.exe to internal injection blacklist
+ + Added up to 100 ms spin if D3D11 hooks initialize before DXGI capabilities
+     have been determined (i.e. flip model); if initialization times out, we
+       will assume that Flip Model and Tearing are both supported.
+
+24.9.25.6
+=========
+ + Added option to disable strict Streamline compatibility, because it
+     is not compatible with various DLSS3->FSR3 mods that do not implement
+       all of Streamline.
+
+         [Compatibility.General]
+         AllowFakeStreamline={true|false}   Default=true
+
+     This may hurt stability in games that use real Streamline, but it is
+       unlikely the myriad of mods pretending to be Streamline will be made
+         more compatible any time soon.
+
+24.9.25.5
+=========
+ + Added LOD Bias and Anisotropic Filtering options to the D3D12 control panel
+
+24.9.25.4
+=========
+ + Added INI option to force a Mipmap LOD bias in D3D12 games
+
+    [Render.D3D12]
+    ForceLODBias=[-32.0,32.0]  Default=0.0 (Unchanged)
+
+   >> An LOD Bias of 0.0 is technically valid, but using this INI, it cannot
+        be set... consider using -0.000001 if you want to force all LOD Bias
+          in a game to 0.0 for some reason.
+
+    * Be very conservative with this setting unless you are deliberately
+        trying to radically alter the image (lol)
+
+      (i.e. single color flat texturing if a very large positive bias is used)
+
+    - Negative biases increase sharpening and shimmering in texture filtering,
+        the most likely use-case for a user to override them would be applying
+          a small negative LOD bias to sharpen textures when using DLSS/FSR.
+
+24.9.25.3
+=========
+ + Check D3D12_FEATURE_DATA_D3D12_OPTIONS19::AnisoFilterWithPointMipSupported
+     at runtime before attempting to upgrade bilinear texture filters to
+       anisotropic min/mag + point mip filter.
+
+    >> This requires newer drivers and is a Vulkan interop-centric feature;
+         if not supported by the driver, bilinear will be upgraded to trilinear
+           when forcing anisotropic filtering on.
+
+24.9.25.2
+=========
+ + Add workaround for implicit AMD OpenGL/DXGI Interop so that OpenGL-IK
+     will always work without interference from AMD's D3D12 SwapChain.
+
+24.9.25.1
+=========
+ + Added warning dialog with info on SKinny (a new support DLL for SK) when
+     attempting to use Global Injection in certain Streamline games.
+
+    * Currently, Horizon: Forbidden West and Forza Horizon 5
+
+24.9.25
 =======
  + Remove part of SK's libScePad integration now that SK can poll PlayStation
      controllers directly using their USB HID communication protocol.
