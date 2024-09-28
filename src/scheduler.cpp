@@ -21,7 +21,9 @@
 
 #include <SpecialK/stdafx.h>
 
-
+#ifndef __SK_SUBSYSTEM__
+#define __SK_SUBSYSTEM__ L"Scheduling"
+#endif
 
 #define ALLOW_UNDOCUMENTED
 
@@ -1699,6 +1701,63 @@ NtSetTimerResolution_Detour
 #pragma warning(disable : 4244)
 #include <intel/HybridDetect.h>
 
+using  SetProcessAffinityMask_pfn = BOOL (WINAPI *)(HANDLE,DWORD_PTR);
+static SetProcessAffinityMask_pfn
+       SetProcessAffinityMask_Original = nullptr;
+
+BOOL
+WINAPI
+SetProcessAffinityMask_Detour (
+  _In_ HANDLE    hProcess,
+  _In_ DWORD_PTR dwProcessAffinityMask )
+{
+  SK_LOG_FIRST_CALL
+
+  // Check virtual handle first, generally that's what games would use
+  if (              hProcess  == SK_GetCurrentProcess () ||
+      GetProcessId (hProcess) == GetCurrentProcessId  ())
+  {
+    if (config.priority.cpu_affinity_mask != UINT64_MAX)
+    {
+      static bool        logged_once = false;
+      if (std::exchange (logged_once, true) == false ||
+          config.system.log_level > 0)
+      {
+        SK_LOGi0 (
+          L"Preventing attempted change (%x) to process affinity mask.",
+            dwProcessAffinityMask
+        );
+      }
+
+      dwProcessAffinityMask =
+        config.priority.cpu_affinity_mask;
+    }
+  }
+
+  return
+    SetProcessAffinityMask_Original (hProcess, dwProcessAffinityMask);
+}
+
+BOOL
+WINAPI
+SK_SetProcessAffinityMask (
+  _In_ HANDLE    hProcess,
+  _In_ DWORD_PTR dwProcessAffinityMask )
+{
+  DWORD_PTR dwDontCare,
+            dwSystemMask;
+
+  GetProcessAffinityMask (
+   hProcess, &dwDontCare, &dwSystemMask);
+  dwProcessAffinityMask &= dwSystemMask;
+
+  if (     SetProcessAffinityMask_Original != nullptr)
+    return SetProcessAffinityMask_Original (hProcess, dwProcessAffinityMask);
+
+  return
+    SetProcessAffinityMask (hProcess, dwProcessAffinityMask);
+}
+
 void SK_Scheduler_Init (void)
 {
   SK_ICommandProcessor
@@ -1802,6 +1861,11 @@ void SK_Scheduler_Init (void)
                                NtWaitForMultipleObjects_Detour,
       static_cast_p2p <void> (&NtWaitForMultipleObjects_Original) );
 
+    SK_CreateDLLHook2 (      L"Kernel32",
+                              "SetProcessAffinityMask",
+                               SetProcessAffinityMask_Detour,
+      static_cast_p2p <void> (&SetProcessAffinityMask_Original) );
+
     SK_CreateDLLHook2 (      L"NtDll",
                               "NtSetTimerResolution",
                                NtSetTimerResolution_Detour,
@@ -1820,6 +1884,13 @@ void SK_Scheduler_Init (void)
                               "timeEndPeriod",
                                timeEndPeriod_Detour,
       static_cast_p2p <void> (&timeEndPeriod_Original) );
+
+    if (config.priority.cpu_affinity_mask != -1)
+    {
+      SK_SetProcessAffinityMask ( GetCurrentProcess (),
+        (DWORD_PTR)config.priority.cpu_affinity_mask
+      );
+    }
 
     HybridDetect::PROCESSOR_INFO    pinfo;
     HybridDetect::GetProcessorInfo (pinfo);
@@ -1842,7 +1913,7 @@ void SK_Scheduler_Init (void)
           process_affinity
       );
 
-      SetProcessAffinityMask ( GetCurrentProcess (),
+      SK_SetProcessAffinityMask ( GetCurrentProcess (),
         process_affinity
       );
 

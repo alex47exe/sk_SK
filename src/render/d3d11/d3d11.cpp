@@ -8170,29 +8170,6 @@ D3D11CreateDeviceAndSwapChain_Detour (IDXGIAdapter          *pAdapter,
   if (SK_COMPAT_IgnoreNvCameraCall ())
     return E_NOTIMPL;
 
-  if (! WaitForInitDXGI (0UL))
-  {
-    SK_ComPtr <IDXGIFactory>                       pFactory;
-    CreateDXGIFactory (IID_IDXGIFactory, (void **)&pFactory.p);
-
-    if (! WaitForInitDXGI (25UL))
-    {
-      if (! dxgi_caps.init.load ())
-      {
-        SK_LOGi0 (
-          L"Timed out waiting for DXGI to init, assuming Flip Model is "
-          L"supported by the current runtime..." );
-
-        dxgi_caps.present.flip_discard    = true;
-        dxgi_caps.present.flip_sequential = true;
-        dxgi_caps.swapchain.allow_tearing = true;
-      }
-    }
-
-    if (pSwapChainDesc != nullptr && SK_DXGI_IsSwapChainReal (*pSwapChainDesc))
-      WaitForInitDXGI ();
-  }
-
   if (! config.render.dxgi.debug_layer)
   {
     if (bEOSOverlay || (pSwapChainDesc != nullptr && !SK_DXGI_IsSwapChainReal (*pSwapChainDesc)))
@@ -8248,6 +8225,27 @@ D3D11CreateDeviceAndSwapChain_Detour (IDXGIAdapter          *pAdapter,
 
   if (! SK_IsInjected ())
   { WaitForInitD3D11 ();}
+
+
+  if (! WaitForInitDXGI (0UL))
+  {
+    if (! WaitForInitDXGI (250UL))
+    {
+      if (! dxgi_caps.init.load ())
+      {
+        SK_LOGi0 (
+          L"Timed out waiting for DXGI to init, assuming Flip Model is "
+          L"supported by the current runtime..." );
+
+        dxgi_caps.present.flip_discard    = true;
+        dxgi_caps.present.flip_sequential = true;
+        dxgi_caps.swapchain.allow_tearing = true;
+      }
+    }
+
+    if (pSwapChainDesc != nullptr && SK_DXGI_IsSwapChainReal (*pSwapChainDesc))
+      WaitForInitDXGI ();
+  }
 
 
   dll_log->LogEx ( true,
@@ -8479,49 +8477,53 @@ D3D11CreateDeviceAndSwapChain_Detour (IDXGIAdapter          *pAdapter,
     if ( ppSwapChain    != nullptr &&
          pSwapChainDesc != nullptr    )
     {
-      const bool dummy_window =      swap_chain_desc.OutputWindow == 0 ||
-        SK_Win32_IsDummyWindowClass (swap_chain_desc.OutputWindow);
+      //
+      // This all should be handled by a hook on CreateSwapChain or CreateSwapChainForHwnd
+      // 
 
-      if (! dummy_window)
-      {
-        auto& windows =
-          rb.windows;
-
-        if ( ReadULongAcquire (&rb.thread) == 0x00 ||
-             ReadULongAcquire (&rb.thread) == SK_Thread_GetCurrentId () )
-        {
-          if (               windows.device != nullptr    &&
-               swap_chain_desc.OutputWindow != nullptr    &&
-               swap_chain_desc.OutputWindow != windows.device )
-            SK_LOG0 ( (L"Game created a new window?!"), __SK_SUBSYSTEM__ );
-        }
-
-        else
-        {
-          wchar_t                         wszClass [128] = { };
-          RealGetWindowClassW (
-            swap_chain_desc.OutputWindow, wszClass, 127 );
-
-          SK_LOG0 ( ( L"Installing Window Hooks for Window Class: '%ws'", wszClass ),
-                      __SK_SUBSYSTEM__ );
-
-          static HWND hWndLast =
-            swap_chain_desc.OutputWindow;
-
-          if ((! IsWindow (windows.getDevice ())) || hWndLast != swap_chain_desc.OutputWindow)
-          {
-            hWndLast            = swap_chain_desc.OutputWindow;
-            windows.setDevice    (swap_chain_desc.OutputWindow);
-            SK_InstallWindowHook (swap_chain_desc.OutputWindow);
-          }
-
-          else
-          {
-            SK_LOG0 ( ( L"Ignored because a window hook already exists..."),
-                        __SK_SUBSYSTEM__ );
-          }
-        }
-      }
+      //const bool dummy_window =      swap_chain_desc.OutputWindow == 0 ||
+      //  SK_Win32_IsDummyWindowClass (swap_chain_desc.OutputWindow);
+      //
+      //if (! dummy_window)
+      //{
+      //  auto& windows =
+      //    rb.windows;
+      //
+      //  if ( ReadULongAcquire (&rb.thread) == 0x00 ||
+      //       ReadULongAcquire (&rb.thread) == SK_Thread_GetCurrentId () )
+      //  {
+      //    if (               windows.device != nullptr    &&
+      //         swap_chain_desc.OutputWindow != nullptr    &&
+      //         swap_chain_desc.OutputWindow != windows.device )
+      //      SK_LOG0 ( (L"Game created a new window?!"), __SK_SUBSYSTEM__ );
+      //  }
+      //
+      //  else
+      //  {
+      //    wchar_t                         wszClass [128] = { };
+      //    RealGetWindowClassW (
+      //      swap_chain_desc.OutputWindow, wszClass, 127 );
+      //
+      //    SK_LOG0 ( ( L"Installing Window Hooks for Window Class: '%ws'", wszClass ),
+      //                __SK_SUBSYSTEM__ );
+      //
+      //    static HWND hWndLast =
+      //      swap_chain_desc.OutputWindow;
+      //
+      //    if ((! IsWindow (windows.getDevice ())) || hWndLast != swap_chain_desc.OutputWindow)
+      //    {
+      //      hWndLast            = swap_chain_desc.OutputWindow;
+      //      windows.setDevice    (swap_chain_desc.OutputWindow);
+      //      SK_InstallWindowHook (swap_chain_desc.OutputWindow);
+      //    }
+      //
+      //    else
+      //    {
+      //      SK_LOG0 ( ( L"Ignored because a window hook already exists..."),
+      //                  __SK_SUBSYSTEM__ );
+      //    }
+      //  }
+      //}
     }
 
 #ifdef SK_D3D11_WRAP_IMMEDIATE_CTX

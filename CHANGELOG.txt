@@ -1,4 +1,39 @@
-﻿24.9.27.1
+﻿24.9.28.4
+=========
+ + Fixed macros and keybinds occasionally activating while a game window
+     does not have input focus if the game uses a (Low-Level) Keyboard Hook.
+ + Command console blocks keybinds while it has text input focus, as expected
+ + Auto-start PresentMon worker thread if AutoVRR is set to re-optimize and
+     has triggered once, or set to enabled and has not yet triggered.
+   * This allows SK to auto-optimize the framerate limiter without the users
+       having to first open the control panel or display the current FPS.
+
+24.9.28.3
+=========
+ + Added option to disable Metaphor plug-in for testing
+     AllowDxDiagn={true|false}   Default=true (enabled)
+ + Reworked DXGI factory initialization when async init is disabled.
+ + Disabled window style hooks (GetWindowLong[Ptr]{A|W})
+
+24.9.28.2
+=========
+ + Automatically set Linear EOTF when enabling HDR in Blt Model sRGB games
+ + Add framerate smoothing mechanism to Metaphor scheduling fix
+
+24.9.28.1
+=========
+ + Add hook on SetProcessAffinityMask (...) to ensure games do not override
+     any user-requested overrides.
+
+24.9.28
+=======
+ + Overhauled input management for keybinds to better handle games with
+     child/sibling windows (such as Metaphor's stupid exit confirmation)
+ + Add hook on msvcp140.dll!_Thrd_sleep (...) because it may call directly
+     into kernelbase.dll!SleepEx (...) instead of kernel32.dll.
+ + Re-enable HID in Metaphor because it is required on SteamOS for gamepads.
+
+24.9.27.1
 =========
  + Further optimize Metaphor; no more periodic stutter.
  + Set PerformanceCoresOnly=false by default for all games except Metaphor.

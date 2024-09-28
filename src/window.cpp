@@ -3328,14 +3328,14 @@ SK_AdjustBorder (void)
     game_window.actual.style_ex =
        ULONG_PTR (SK_BORDERLESS_EX);
 
-    // Must remove this or God of War: Ragnarok will fail SwapChain creation in FSR3
-    game_window.actual.style_ex &= ~WS_EX_TOPMOST;
+    //// Must remove this or God of War: Ragnarok will fail SwapChain creation in FSR3
+    //game_window.actual.style_ex &= ~WS_EX_TOPMOST;
   }
 
   if (game_window.attach_border)
   {
-    // Must remove this or God of War: Ragnarok will fail SwapChain creation in FSR3
-    game_window.actual.style_ex &= ~WS_EX_TOPMOST;
+    //// Must remove this or God of War: Ragnarok will fail SwapChain creation in FSR3
+    //game_window.actual.style_ex &= ~WS_EX_TOPMOST;
 
     game_window.actual.style    =
       ULONG_PTR (game_window.border_style);
@@ -5738,7 +5738,7 @@ SK_DetourWindowProc ( _In_  HWND   hWnd,
         SK_LOG0 ( ( L"(?) Active window destroyed, our chicken has no head!" ),
                     __SK_SUBSYSTEM__ );
 
-        if (GetAncestor (hWnd, GA_ROOT) == game_window.hWnd)
+        if (GetAncestor (hWnd, GA_ROOTOWNER) == game_window.hWnd)
         {
           SK_Win32_DestroyBackgroundWindow ();
 
@@ -6263,8 +6263,8 @@ SK_InitWindow (HWND hWnd, bool fullscreen_exclusive)
     game_window.GetWindowLongPtr ( hWnd, GWL_EXSTYLE );
 
 
-  // Must remove this or God of War: Ragnarok will fail SwapChain creation in FSR3
-  game_window.actual.style_ex &= ~WS_EX_TOPMOST;
+  //// Must remove this or God of War: Ragnarok will fail SwapChain creation in FSR3
+  //game_window.actual.style_ex &= ~WS_EX_TOPMOST;
 
 
   const bool has_border = SK_WindowManager::StyleHasBorder (
@@ -7041,7 +7041,7 @@ SK_CRAPCOM_SurrogateWindowProc ( _In_  HWND   hWnd,
 void
 SK_MakeWindowHook (WNDPROC class_proc, WNDPROC wnd_proc, HWND hWnd)
 {
-  hWnd = GetAncestor (hWnd, GA_ROOT);
+  hWnd = GetAncestor (hWnd, GA_ROOTOWNER);
 
   wchar_t wszClassName [128] = { };
   wchar_t wszTitle     [128] = { };
@@ -7069,14 +7069,14 @@ SK_MakeWindowHook (WNDPROC class_proc, WNDPROC wnd_proc, HWND hWnd)
         const bool bUnicode =
           SK_IsWindowUnicode (hWnd, SK_TLS_Bottom ());
 
-        __SK_CRAPCOM_RealWndProc = (WNDPROC)( bUnicode ?
-             SK_GetWindowLongPtrW (hWnd, GWLP_WNDPROC) :
-             SK_GetWindowLongPtrA (hWnd, GWLP_WNDPROC) );
+        //__SK_CRAPCOM_RealWndProc = (WNDPROC)( bUnicode ?
+        //     SK_GetWindowLongPtrW (hWnd, GWLP_WNDPROC) :
+        //     SK_GetWindowLongPtrA (hWnd, GWLP_WNDPROC) );
 
         if (bUnicode)
-          SK_SetWindowLongPtrW (hWnd, GWLP_WNDPROC, (LONG_PTR)SK_CRAPCOM_SurrogateWindowProc);
+          __SK_CRAPCOM_RealWndProc = (WNDPROC)SK_SetWindowLongPtrW (hWnd, GWLP_WNDPROC, (LONG_PTR)SK_CRAPCOM_SurrogateWindowProc);
         else
-          SK_SetWindowLongPtrA (hWnd, GWLP_WNDPROC, (LONG_PTR)SK_CRAPCOM_SurrogateWindowProc);
+          __SK_CRAPCOM_RealWndProc = (WNDPROC)SK_SetWindowLongPtrA (hWnd, GWLP_WNDPROC, (LONG_PTR)SK_CRAPCOM_SurrogateWindowProc);
 
         wnd_proc = SK_CRAPCOM_SurrogateWindowProc;
       }
@@ -7575,15 +7575,17 @@ SK_HookWinAPI (void)
                        SetWindowLongW_Detour,
                        static_cast_p2p <void> (&SetWindowLongW_Original) );
 
-    SK_CreateDLLHook2 (       L"user32",
-                       "GetWindowLongA",
-                       GetWindowLongA_Detour,
-                       static_cast_p2p <void> (&GetWindowLongA_Original) );
-
-    SK_CreateDLLHook2 (       L"user32",
-                       "GetWindowLongW",
-                       GetWindowLongW_Detour,
-                       static_cast_p2p <void> (&GetWindowLongW_Original) );
+    /// These hooks are unnecessary unless trying to spoof window style
+    ///
+    ////SK_CreateDLLHook2 (       L"user32",
+    ////                   "GetWindowLongA",
+    ////                   GetWindowLongA_Detour,
+    ////                   static_cast_p2p <void> (&GetWindowLongA_Original) );
+    ////
+    ////SK_CreateDLLHook2 (       L"user32",
+    ////                   "GetWindowLongW",
+    ////                   GetWindowLongW_Detour,
+    ////                   static_cast_p2p <void> (&GetWindowLongW_Original) );
 #ifdef _WIN64
     SK_CreateDLLHook2 (       L"user32",
                        "SetWindowLongPtrA",
@@ -7595,15 +7597,15 @@ SK_HookWinAPI (void)
                        SetWindowLongPtrW_Detour,
                        static_cast_p2p <void> (&SetWindowLongPtrW_Original) );
 
-    SK_CreateDLLHook2 (       L"user32",
-                       "GetWindowLongPtrA",
-                       GetWindowLongPtrA_Detour,
-                       static_cast_p2p <void> (&GetWindowLongPtrA_Original) );
-
-    SK_CreateDLLHook2 (       L"user32",
-                       "GetWindowLongPtrW",
-                       GetWindowLongPtrW_Detour,
-                       static_cast_p2p <void> (&GetWindowLongPtrW_Original) );
+    ////SK_CreateDLLHook2 (       L"user32",
+    ////                   "GetWindowLongPtrA",
+    ////                   GetWindowLongPtrA_Detour,
+    ////                   static_cast_p2p <void> (&GetWindowLongPtrA_Original) );
+    ////
+    ////SK_CreateDLLHook2 (       L"user32",
+    ////                   "GetWindowLongPtrW",
+    ////                   GetWindowLongPtrW_Detour,
+    ////                   static_cast_p2p <void> (&GetWindowLongPtrW_Original) );
 #else
 
     // 32-bit Windows does not have these functions; just route them
