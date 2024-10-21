@@ -1,7 +1,59 @@
-﻿24.10.5
+﻿24.10.21
+========
+ + Fix double keyboard input procesing in Ys X and potentially other games that
+     use SDL2 Raw Input.
+
+24.10.20
+========
+ + Add workaround for D3D12 HDR screenshots using 64 KiB memory alignment and
+     sometimes producing black images.
+
+24.10.19.2
+==========
+ + Removed hook on msvcp140.dll!_Thrd_sleep(...) first introduced for Metaphor,
+     because it causes problems with many of ph3's Legend of Heroes ports.
+ + Removed internal injection blacklist on ApplicationFrameHost.exe.
+
+24.10.19.1
+==========
+ + Merge pull request #217 from audaki:fix-gamma-boost-color-changes
+     * Added hue-preserving SDR Gamma Boost to HDR tonemapping.
+ + Enable D3D11 Deferred Context Isolation in Metaphor ReFantazio for texture
+     caching to track redundant UI resource uploads.
+
+24.10.19
+========
+ + Auto-load MetaphorFix.asi if placed in Metaphor ReFantazio's install dir.
+ + Added sanity check to prevent partially (?) implemented Core Audio APIs
+     in Wine from leaking memory when enumerating Windows Audio Sessions.
+
+   * Said leak prevents Special K from working in recent releases of Proton.
+
+24.10.18.1
+==========
+ + Re-enable Metaphor ReFantazio thread scheduling performance fixes by default
+ + Enable DirectInput performance fixes for Metaphor
+ + Turn on 6x AF by default in Metaphor (force to 16x if you have GPU to spare)
+
+    * Reset INI file for Metaphor to take advantage of this stuff...
+
+24.10.18
+========
+ + Added LOD Bias and Anisotropic Filtering overrides for D3D11 games
+
+    >> The INI setting re-uses the D3D12 names, this whole thing will
+         have its INI names changed in the future.
+
+      * Use the in-game control panel to adjust Texture Filtering in
+          D3D11/12 in the meantime to avoid confusion.
+
+    Real-time adjustment for Anisotropic level and LOD Bias is planned
+      for D3D11, but not yet implemented (game restart = required).
+
+24.10.5
 =======
  + Disabled thread scheduling fix by default in Metaphor;
-     it can be re-enabled by setting AllowDsDiagn=true
+     it can be re-enabled by setting AllowDxDiagn=true
  + Turn Flip Model off in Final Fantasy XV for non-HDR users.
 
 24.9.28.4

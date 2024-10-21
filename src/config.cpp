@@ -3669,22 +3669,48 @@ auto DeclKeybind =
         break;
 
       case SK_GAME_ID::Metaphor:
-        config.compatibility.init_on_separate_thread  = false;
-        config.input.keyboard.override_alt_f4         = true; // Oh lord, kill that buggy exit confirmation
-        config.render.dxgi.fake_fullscreen_mode       = true;
-        config.display.force_windowed                 = true;
-        config.render.framerate.sleepless_render      = false;
-        config.render.framerate.sleepless_window      = false;
-        config.input.gamepad.xinput.emulate           = true; // XInput-only
-        config.input.gamepad.xinput.disable [1]       = true;
-        config.input.gamepad.xinput.disable [2]       = true;
-        config.input.gamepad.xinput.disable [3]       = true;
-        config.priority.perf_cores_only               = true;
-        config.render.hdr.remaster_8bpc_as_unorm      = true;
-        config.render.hdr.remaster_subnative_as_unorm = true;
+        config.compatibility.init_on_separate_thread   = false;
+        config.input.keyboard.override_alt_f4          = true; // Oh lord, kill that buggy exit confirmation
+        config.render.dxgi.fake_fullscreen_mode        = true;
+        config.window.always_on_top                    = SmartAlwaysOnTop;
+        config.window.borderless                       = true;
+        config.window.fullscreen                       = true;
+        config.display.force_windowed                  = true;
+        config.render.framerate.sleepless_render       = false;
+        config.render.framerate.sleepless_window       = false;
+        config.input.gamepad.xinput.emulate            = true; // XInput-only
+        config.input.gamepad.xinput.disable [1]        = true;
+        config.input.gamepad.xinput.disable [2]        = true;
+        config.input.gamepad.xinput.disable [3]        = true;
+        config.priority.perf_cores_only                = true;
+        config.render.hdr.remaster_8bpc_as_unorm       = true;
+        config.render.hdr.remaster_subnative_as_unorm  = true;
+        config.input.gamepad.dinput.block_enum_devices = true; // Avoid perf issues
+        config.textures.cache.allow_staging            = true;
+        config.render.dxgi.deferred_isolation          = true; // Needed for correct texture caching on staging uploads
 
-        // Scheduling fixes not needed anymore.
-        config.compatibility.allow_dxdiagn            = false;
+        config.render.d3d12.force_anisotropic          = true;
+        config.render.d3d12.max_anisotropy             =  6UL;
+        config.render.d3d12.force_lod_bias             =-0.001f;
+
+        // Scheduling fixes still needed.
+        config.compatibility.allow_dxdiagn             = true;
+
+        SK_RunOnce
+        (
+          // Auto-load Metaphor Fix if it is present
+          if (PathFileExistsW (L"MetaphorFix.asi")
+              && LoadLibraryW (L"MetaphorFix.asi"))
+          {
+            SK_ImGui_CreateNotification (
+              "PlugIn.Load", SK_ImGui_Toast::Success,
+                 "MetaphorFix.asi",
+                   "Special K Plug-In Loaded",
+                   5000, SK_ImGui_Toast::UseDuration |
+                         SK_ImGui_Toast::ShowCaption |
+                         SK_ImGui_Toast::ShowTitle );
+          }
+        );
         break;
 
       case SK_GAME_ID::DiabloIV:
