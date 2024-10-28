@@ -1,4 +1,212 @@
-﻿24.10.21.2
+﻿24.10.28.2
+==========
+ + Always use the fully qualified path when looking up NVIDIA driver profiles
+     for the current game in order to avoid creating duplicates.
+ + Fix bug in Ys X where it may attempt to create 0x0 textures when its window
+     is minimized and then crash.
+ + Query D3D11 device context type when wrapping it, and then use that rather
+     than calling ID3D11DeviceContext::GetType(...) because the D3D debug layer
+       will abort if GetType is called from multiple threads.
+ + 
+
+24.10.28.1
+==========
+ + Add explicit overrides for many of the most important SDL input settings
+
+    ( -1 = No Override, 0 = Off, 1 = On )
+
+    * Refer to SDL_hints.h for details on each,
+
+      "FullPlayStationBluetoothSupport" is a combination of
+        SDL_JOYSTICK_HIDAPI_PS4_RUMBLE and SDL_JOYSTICK_HIDAPI_PS5_RUMBLE...
+
+      This setting is controversial, it will allow rumble and haptics over
+        Bluetooth, but will cause your gamepad to become incompatible with
+          games that use DirectInput until powered off and back on...
+
+      ^ If that sounds familiar, it is the entire reason ValvePlug was created.
+
+   *** Unlike the Steam Client, SDL never enables those things without consent,
+         and that means rumble may be missing from many games that use SDL.
+
+24.10.28
+========
+ + Allow SDL to use DirectInput gamepads at sanity level 1
+ + Improve Vulkan/DXGI Layer detection for NVIDIA drivers to handle cases
+     where vulkan-1.dll is calling DXGI directly instead of nvoglv{32|64}.
+ + Turn Multitasking-on-Top off by default again, because at levels aggressive
+     enough to work, some windows will not be raised above the game.
+
+24.10.27.4
+==========
+ + Add cached memory addresses for framerate unlock for Elden Ring 2.6.0.0.
+ + Make sure SK always calls the real ShowWindow (...) instead of its hook.
+ + Handle undocumented special cases SWP_NOCLIENTMOVE and SWP_NOCLIENTSIZE,
+     to fix problems with Sonic Generations (presumably a Windows AppCompat
+       hack that ships with Windows).
+
+24.10.27.3
+==========
+ + Added support for minimizing/restoring borderless games by pressing the
+     normal Windows keybinds to do so (Win+Down / Win+Up).
+
+24.10.27.2
+==========
+ + Avoid unnecessary window position and border style API calls when no actual
+     change is required.
+ + Allow WS_ICONIC window style to be set if borderless override is not on.
+ + Add WS_EX_WINDOWEDGE to list of extended window styles that have borders.
+
+24.10.27.1
+==========
+ + Fixed rare deadlock when an application deletes the D3D11 Immediate Device
+     Context for a device during shutdown.
+ + Fixed ReShade Plug-In selection UI not correctly turning Compatibility Mode
+     off (necessary for some ReShade Add-Ons to work).
+
+24.10.27
+========
+ + HDR Remastered tooltip now ONLY counts memory for remastered RenderTargets
+     and Unordered Access Views that are -still- in memory, and values decrease
+       as a game unloads remastered resources.
+
+    * It now accurately measures extra VRAM used by having remasters enabled.
+
+ + Remastered D3D11 RenderTargets and Unordered Access Views now have names
+     describing the type of resource, a unique ID and the original Surface
+       format before SK upgraded it to R16[G16[B16A16]]_{FLOAT|UNORM}.
+
+    * Names appear in debug logs and the Render Mod Tools (Live RenderTargets).
+
+24.10.26.2
+==========
+ + Fixed SKIF not being able to disable GFE notifications due to disabled code
+ + Increase delay between first drawing an achievement unlock popup and taking
+     screenshot, so that statistics such as unlock time reliably appear.
+
+24.10.26.1
+==========
+ + Optimize SK_D3D11_SetShader_Impl (...)/SK_D3D11_EnsureMatchingDevices (...)
+     to use D3D11 Private Data lookups.
+
+24.10.26
+========
+ + Add Alt+F4 handler override to workaround Ys X's buggy Alt+F4 code that
+     tends to close the game window, but leave the game running.
+
+24.10.25.2
+==========
+ + Fixed missing mouse input in Forza Horizon 5.
+
+24.10.25.1
+==========
+ + Change compiler settings to generate code more compatible with the Steam
+     overlay on some systems.
+
+24.10.25
+========
+ + Add checks to prevent confusing SKIF and SKIV when SK needs to send
+     signals to SKIF during injection.
+ + Prevent turning off "Background Render" mode while Fake Fullscreen is
+     enabled.
+
+24.10.24.7
+==========
+ + Improve SDL detection for games (i.e. Ys X) that use SDL, but have
+     overridden the default window class name.
+ + Add various default behavior overrides for SDL games to avoid double
+     input polling and buggy window management without recompiling SDL.
+
+   * An INI parameter has been added to control this,
+
+    [Compatibility.General]
+    SDLSanityLevel={0,1,2}  Default=1
+
+      0=Do Nothing
+      1=Set SK Optimized Values if no SDL environment variables are set
+      2=Force SK Optimized Values
+
+24.10.24.6
+==========
+ + Disable ImGui's g.ClipboardHandlerData temporary storage when pasting
+     into a text control and use Special K's Thread-Local Stack Allocator
+       instead to fix instability in ImGui's clipboard handler.
+
+24.10.24.5
+==========
+ + Improved mouse input in applications that use multiple windows,
+     such as emulators.
+ + Allow mouse clicks that activate the game window from background
+     state to also activate parts of Special K's control panel.
+
+24.10.24.4
+==========
+ + Enable Multitasking-on-Top mode by default
+ + Make gamepad input activity hide the cursor as default policy
+     when enabling cursor auto-hide
+ + Consider window extended style WS_EX_CLIENTEDGE as bordered
+ + Consider window style WS_CAPTION and WS_SYSMENU as bordered
+
+24.10.24.3
+==========
+ + Fix endless game restart cycle in DOOM Eternal when Vulkan Bridge needs to
+     be enabled.
+ + No longer disable Valve's Vulkan "Fossilize" (shader caching) layer when
+     Vulkan Bridge is enabled.
+ + Improved AMD and NVIDIA Vulkan/DXGI Interop detection.
+ + Fixed swapped definitions for NVIDIA driver settings API enum values:
+     OGL_DX_LAYERED_PRESENT_AUTO and OGL_DX_LAYERED_PRESENT_NATIVE
+
+24.10.24.2
+==========
+ + Fix changes to mipmap level selection in D3D11 that may cause glitches during
+     certain lighting and shadowing render passes.
+
+24.10.24.1
+==========
+ + Disable Metaphor ReFantazio thread scheduling fix by default on Intel CPUs
+     because they lack the necessary MWAITX instruction to make this beneficial.
+
+24.10.24
+========
+ + Fix NVIDIA's Vulkan interop not being detected on SDR systems in newest driver
+     releases.
+ + Add support for 8-bpc Render/Compute HDR remastering in Shadow Generations.
+ + Add D3D11/DXGI Debug Layer minimum severity level to message logging UI.
+ + Add anti-cheat workaround for Genshin Impact.
+
+24.10.23.2
+==========
+ + Disable D3D11 texture cache in Sonic X Shadow Generations because it may
+     exacerbate VRAM leaks during FMV playback (same as previous Sonic titles).
+
+24.10.23.1
+==========
+ + Add additional protection from Sonic X Shadow Generations causing premature
+     injection service shutdown before Sonic Generations can launch.
+
+24.10.23
+========
+ + Ensure that WS_SYSMENU style is never added to borderless windows, it is
+     technically invalid without WS_CAPTION.
+ + Fixed D3D11 Unordered Access Views with format R32_UINT not being considered
+     castable from R8G8B8A8_TYPELESS.
+ + Make sure that Sonic X Shadow Generations does not stop the injection service
+     until either it exits, or it launches the original Sonic Generations.
+
+24.10.22.1
+==========
+ + Update SK's HDR enabled detection code to account for WCG SDR displays, as
+     Windows 11 24H2 finally makes public the API to distinguish WCG from HDR.
+  + Switch to statically linking MSVCRT so that compiler version issues do not
+     pop up in the future.
+
+24.10.22 (HOTFIX)
+=================
+ + Downgrade compiler version used so that games that ship with an outdated
+     version of msvcp140.dll in their game directory cannot break SK.
+
+24.10.21.2
 ==========
  + Changed default HDR Perceptual Boost Color from 50% to 33% because gamma no
      longer desaturates the image.

@@ -3295,14 +3295,17 @@ sizeof (output_s));
            pSwap3 (swapchain.p);
     if (   pSwap3)
     {
-      // Windows tends to cache this stuff, we're going to build our own with
-      //   more up-to-date values instead.
-      DXGI_OUTPUT_DESC1
-        uncachedOutDesc;
-        uncachedOutDesc.BitsPerColor = pContainer->bpc;
-        uncachedOutDesc.ColorSpace   = pContainer->colorspace;
+      if (pContainer != nullptr)
+      {
+        // Windows tends to cache this stuff, we're going to build our own with
+        //   more up-to-date values instead.
+        DXGI_OUTPUT_DESC1
+          uncachedOutDesc;
+          uncachedOutDesc.BitsPerColor = pContainer->bpc;
+          uncachedOutDesc.ColorSpace   = pContainer->colorspace;
 
-      SK_DXGI_UpdateColorSpace (pSwap3.p, &uncachedOutDesc);
+        SK_DXGI_UpdateColorSpace (pSwap3.p, &uncachedOutDesc);
+      }
 
       if (config.render.dxgi.temporary_dwm_hdr)
       {
@@ -3955,25 +3958,48 @@ SK_RenderBackend_V2::updateOutputTopology (void)
         }
       }
 
-      DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO
-        getHdrInfo                  = { };
-        getHdrInfo.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO;
-        getHdrInfo.header.size      = sizeof     (DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO);
-        getHdrInfo.header.adapterId = display.vidpn.targetInfo.adapterId;
-        getHdrInfo.header.id        = display.vidpn.targetInfo.id;
+#if (NTDDI_VERSION >= NTDDI_WIN11_GA) && defined (__ID3D12Device11_INTERFACE_DEFINED__) // Stupid stuff because GitHub is missing parts of the Windows SDK
+	    DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2
+        getColorInfo2                  = { };
+        getColorInfo2.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO_2;
+        getColorInfo2.header.size      = sizeof     (DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO_2);
+        getColorInfo2.header.adapterId = display.vidpn.targetInfo.adapterId;
+        getColorInfo2.header.id        = display.vidpn.targetInfo.id;
 
-      if ( ERROR_SUCCESS == SK_DisplayConfigGetDeviceInfo ( (DISPLAYCONFIG_DEVICE_INFO_HEADER *)&getHdrInfo ) )
+      if ( ERROR_SUCCESS == SK_DisplayConfigGetDeviceInfo ( (DISPLAYCONFIG_DEVICE_INFO_HEADER *)&getColorInfo2 ) )
       {
-        display.hdr.supported = getHdrInfo.advancedColorSupported;
-        display.hdr.enabled   = getHdrInfo.advancedColorEnabled;
-        display.hdr.encoding  = getHdrInfo.colorEncoding;
-        display.bpc           = getHdrInfo.bitsPerColorChannel;
+        display.hdr.supported = getColorInfo2.highDynamicRangeSupported &&
+                             (! getColorInfo2.advancedColorLimitedByPolicy);
+        display.hdr.enabled   = getColorInfo2.advancedColorActive         &&
+                                getColorInfo2.highDynamicRangeUserEnabled &&
+                                getColorInfo2.activeColorMode == DISPLAYCONFIG_ADVANCED_COLOR_MODE_HDR;
+        display.hdr.encoding  = getColorInfo2.colorEncoding;
+        display.bpc           = getColorInfo2.bitsPerColorChannel;
       }
 
       else
+#endif
       {
-        display.hdr.supported = false;
-        display.hdr.enabled   = false;
+        DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO
+          getColorInfo                  = { };
+          getColorInfo.header.type      = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO;
+          getColorInfo.header.size      = sizeof     (DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO);
+          getColorInfo.header.adapterId = display.vidpn.targetInfo.adapterId;
+          getColorInfo.header.id        = display.vidpn.targetInfo.id;
+
+        if ( ERROR_SUCCESS == SK_DisplayConfigGetDeviceInfo ( (DISPLAYCONFIG_DEVICE_INFO_HEADER *)&getColorInfo ) )
+        {
+          display.hdr.supported = getColorInfo.advancedColorSupported;
+          display.hdr.enabled   = getColorInfo.advancedColorEnabled;
+          display.hdr.encoding  = getColorInfo.colorEncoding;
+          display.bpc           = getColorInfo.bitsPerColorChannel;
+        }
+
+        else
+        {
+          display.hdr.supported = false;
+          display.hdr.enabled   = false;
+        }
       }
 
       // Don't need this info unless HDR is active

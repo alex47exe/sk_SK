@@ -1188,7 +1188,7 @@ SK_D3D11Dev_CreateRenderTargetView_Impl (
 
                     else
                     {
-                      if (! config.render.dxgi.suppress_rtv_mismatch)
+                      if ((! config.render.dxgi.suppress_rtv_mismatch) && config.system.log_level > 0)
                       {
                         SK_RunOnce (
                           SK_ImGui_Warning (
@@ -1448,7 +1448,7 @@ SK_D3D11Dev_CreateRenderTargetView1_Impl (
 
                     else
                     {
-                      if (! config.render.dxgi.suppress_rtv_mismatch)
+                      if ((! config.render.dxgi.suppress_rtv_mismatch) && config.system.log_level > 0)
                       {
                         SK_RunOnce (
                           SK_ImGui_Warning (
@@ -5422,6 +5422,44 @@ SK_D3DX11_SAFE_CreateTextureFromFileW ( ID3D11Device*           pDevice,   LPCWS
   return E_NOTIMPL;
 }
 
+#define SK_REMASTER_DESTROY_UAV_CALLBACK(bits)           \
+void __stdcall                                           \
+SK_D3D11_Remastered##bits##BitUAVDestroyed (void* size) {\
+  InterlockedDecrement (                                 \
+   &SK_HDR_UnorderedViews_##bits##bpc->TargetsUpgraded); \
+  InterlockedDecrement (                                 \
+   &SK_HDR_UnorderedViews_##bits##bpc->CandidatesSeen);  \
+  InterlockedAdd64     (                                 \
+   &SK_HDR_UnorderedViews_##bits##bpc->BytesAllocated,   \
+                                        -(int64_t)size);}\
+
+#define SK_REMASTER_DESTROY_RT_CALLBACK(bits)           \
+void __stdcall                                          \
+SK_D3D11_Remastered##bits##BitRTDestroyed (void* size) {\
+  InterlockedDecrement (                                \
+   &SK_HDR_RenderTargets_##bits##bpc->TargetsUpgraded); \
+  InterlockedDecrement (                                \
+   &SK_HDR_RenderTargets_##bits##bpc->CandidatesSeen);  \
+  InterlockedAdd64     (                                \
+   &SK_HDR_RenderTargets_##bits##bpc->BytesAllocated,   \
+                                       -(int64_t)size);}\
+
+SK_REMASTER_DESTROY_RT_CALLBACK  ( 8);
+SK_REMASTER_DESTROY_UAV_CALLBACK ( 8);
+SK_REMASTER_DESTROY_RT_CALLBACK  (10);
+SK_REMASTER_DESTROY_UAV_CALLBACK (10);
+SK_REMASTER_DESTROY_RT_CALLBACK  (11);
+SK_REMASTER_DESTROY_UAV_CALLBACK (11);
+
+#define SK_GET_REMASTER_DESTROY_UAV_CALLBACK(bits)         \
+        bits == 8  ? SK_D3D11_Remastered8BitUAVDestroyed  :\
+        bits == 10 ? SK_D3D11_Remastered10BitUAVDestroyed :\
+        bits == 11 ? SK_D3D11_Remastered11BitUAVDestroyed : nullptr
+#define SK_GET_REMASTER_DESTROY_RT_CALLBACK(bits)         \
+        bits == 8  ? SK_D3D11_Remastered8BitRTDestroyed  :\
+        bits == 10 ? SK_D3D11_Remastered10BitRTDestroyed :\
+        bits == 11 ? SK_D3D11_Remastered11BitRTDestroyed : nullptr
+
 HRESULT
 WINAPI
 D3D11Dev_CreateTexture2DCore_Impl (
@@ -5434,6 +5472,13 @@ D3D11Dev_CreateTexture2DCore_Impl (
                     LPVOID                   lpCallerAddr,
                     SK_TLS                  *pTLS )
 {
+  // Necessary hack to keep Ys X from crashing if forcefully minimized;
+  //   it would attempt to create a 0x0 texture, but that's invalid.
+  if (pDesc0 != nullptr) { pDesc0->Width  = pDesc0->Width  == 0 ? 1 : pDesc0->Width;
+                           pDesc0->Height = pDesc0->Height == 0 ? 1 : pDesc0->Height; }
+  if (pDesc1 != nullptr) { pDesc1->Width  = pDesc1->Width  == 0 ? 1 : pDesc1->Width;
+                           pDesc1->Height = pDesc1->Height == 0 ? 1 : pDesc1->Height; }
+
   ID3D11Device3*         This3 = (ID3D11Device3 *)This;
   ID3D11Texture2D1**     ppTexture2D =
                          ppTexture2D0 != nullptr ? (ID3D11Texture2D1 **)ppTexture2D0
@@ -5701,10 +5746,10 @@ D3D11Dev_CreateTexture2DCore_Impl (
            ((pDesc->BindFlags & D3D11_BIND_SHADER_RESOURCE)   ==
                                 D3D11_BIND_SHADER_RESOURCE &&
                  pDesc->Width == swapDesc.BufferDesc.Width &&
-                pDesc->Height == swapDesc.BufferDesc.Height//&&
-              /*pDesc->Format == swapDesc.BufferDesc.Format*/))         &&
+                pDesc->Height == swapDesc.BufferDesc.Height///&&
+              /*pDesc->Format == swapDesc.BufferDesc.Format*/)) &&
 #endif
-           (pDesc->BindFlags & _UnwantedBindFlags) == 0 && (pDesc->MiscFlags & _UnwantedMiscFlags) == 0 && ( pDesc->Width * pDesc->Height * 8 < 256 * 1024 * 1024 ) )
+           (pDesc->BindFlags & _UnwantedBindFlags) == 0 && (pDesc->MiscFlags & _UnwantedMiscFlags) == 0 && ( pDesc->Width * pDesc->Height * 8 < 512 * 1024 * 1024 ) )
        )
     {
       if ( (! ( DirectX::IsVideo        (pDesc->Format) ||
@@ -5716,6 +5761,8 @@ D3D11Dev_CreateTexture2DCore_Impl (
         bool is_uav =
           (pDesc->BindFlags & D3D11_BIND_UNORDERED_ACCESS) ==
                               D3D11_BIND_UNORDERED_ACCESS;
+
+        void* bytes_added = 0;
 
         SK_HDR_RenderTargetManager *p11BitTargetManager =
           is_uav ? SK_HDR_UnorderedViews_11bpc.getPtr ()
@@ -5767,13 +5814,10 @@ D3D11Dev_CreateTexture2DCore_Impl (
             SK_LOGi0 (L"MSAA Render Target allocated while SK had no active SwapChain...");
         }
 
-        //if (pDesc->SampleDesc.Count == swapDesc.SampleDesc.Count ||
-        //    pDesc->SampleDesc.Count == 1)
-
         // SK can't currently handle remastering resources that are
         //   BOTH mipmapped AND array...
         const bool remaster_compatible_subresources =
-          (pDesc->ArraySize == 1 || pDesc->MipLevels == 1);
+          (pDesc->ArraySize == 1 || (pDesc->MipLevels == 1 || pDesc->MiscFlags & D3D11_RESOURCE_MISC_GENERATE_MIPS));
 
         if (remaster_compatible_subresources)
         {
@@ -5798,12 +5842,14 @@ D3D11Dev_CreateTexture2DCore_Impl (
 
             if (bpc == 11)
             {
-              InterlockedAdd64     (&p11BitTargetManager->BytesAllocated, 4LL * pDesc->Width * pDesc->Height);
+              bytes_added = (void*)(uintptr_t)(4LL * pDesc->Width * pDesc->Height);
+              InterlockedAdd64     (&p11BitTargetManager->BytesAllocated, (uint64_t)bytes_added);
               InterlockedIncrement (&p11BitTargetManager->TargetsUpgraded);
             }
             else if (bpc == 10)
             {
-              InterlockedAdd64     (&p10BitTargetManager->BytesAllocated, 4LL * pDesc->Width * pDesc->Height);
+              bytes_added = (void*)(uintptr_t)(4LL * pDesc->Width * pDesc->Height);
+              InterlockedAdd64     (&p10BitTargetManager->BytesAllocated, (uint64_t)bytes_added);
               InterlockedIncrement (&p10BitTargetManager->TargetsUpgraded);
             }
 
@@ -5827,22 +5873,32 @@ D3D11Dev_CreateTexture2DCore_Impl (
             bool rgba =
               ( _typeless == DXGI_FORMAT_R8G8B8A8_TYPELESS ||
                 _typeless == DXGI_FORMAT_B8G8R8X8_TYPELESS ||
-                _typeless == DXGI_FORMAT_B8G8R8A8_TYPELESS );//||
-                //_typeless == DXGI_FORMAT_R8G8_TYPELESS       ||
-                //_typeless == DXGI_FORMAT_R8_TYPELESS );
+                _typeless == DXGI_FORMAT_B8G8R8A8_TYPELESS );
 
             //@TODO: Should R8G8 and R8 also be considered for FP16 upgrade?
+            //
+            //  - This has only been tested in one game at the moment...
+            if (SK_GetCurrentGameID () == SK_GAME_ID::SonicXShadowGenerations)
+            {
+              rgba |=
+                ( _typeless == DXGI_FORMAT_R8G8_TYPELESS ||
+                  _typeless == DXGI_FORMAT_R8_TYPELESS );
+            }
 
             // 8-bit RGB(x) -> 16-bit FP
             if (rgba)
             {
               // NieR: Automata is tricky, do not change the format of the bloom
               //   reduction series of targets.
-              static const bool bNier =
-                ( SK_GetCurrentGameID () == SK_GAME_ID::NieRAutomata );
-              if (                                    (! bNier) ||
-                  ( pDesc->Width  == swapDesc.BufferDesc.Width &&
-                    pDesc->Height == swapDesc.BufferDesc.Height )
+              static
+              const bool bIgnorePartialMatches =
+                ( SK_GetCurrentGameID () == SK_GAME_ID::NieRAutomata ) ||
+                ( SK_GetCurrentGameID () == SK_GAME_ID::SonicXShadowGenerations );
+
+              const bool game_specific_reqs_met = false;
+              if (       game_specific_reqs_met  ||
+                   ( ( (! bIgnorePartialMatches) || ( pDesc->Width  == swapDesc.BufferDesc.Width &&
+                                                      pDesc->Height == swapDesc.BufferDesc.Height ) ) )
                  )
               {
                 if (p8BitTargetManager->PromoteTo16Bit)
@@ -5854,26 +5910,38 @@ D3D11Dev_CreateTexture2DCore_Impl (
                       SK_DXGI_FormatToStr (hdr_fmt_override).data () );
                   }
 
-                  // 32-bit total -> 64-bit
-                  InterlockedAdd64     (&p8BitTargetManager->BytesAllocated, 4LL * pDesc->Width * pDesc->Height);
                   InterlockedIncrement (&p8BitTargetManager->TargetsUpgraded);
 
-                  //if (     _typeless == DXGI_FORMAT_R8G8_TYPELESS)
-                  //  pDesc->Format     = DXGI_FORMAT_R16G16_FLOAT;
-                  //else if (_typeless == DXGI_FORMAT_R8_TYPELESS)
-                  //  pDesc->Format     = DXGI_FORMAT_R16_FLOAT;
-                  //else
-
-                  //
-                  // Sometimes rendering into an FP RenderTarget is going to produce invalid blend results,
-                  //   but we can still upgrade targets to a UNORM format with greater precision and get some
-                  //     remastering benefits...
-                  //
-                  if ( ( ( pDesc->Width  == swapDesc.BufferDesc.Width    &&
-                           pDesc->Height == swapDesc.BufferDesc.Height ) && (! bUpgradeNativeTargetsToFP) ) ||
-                           config.render.hdr.remaster_8bpc_as_unorm )
+                  // nb: R8G8 and R8 do not currently respect the FP->UNORM compat setting!
+                  if (     _typeless == DXGI_FORMAT_R8G8_TYPELESS)
                   {
-                    hdr_fmt_override = DXGI_FORMAT_R16G16B16A16_UNORM;
+                    bytes_added       = (void*)(uintptr_t)(2LL * pDesc->Width * pDesc->Height);
+                    pDesc->Format     = DXGI_FORMAT_R16G16_FLOAT;
+                    InterlockedAdd64    (&p8BitTargetManager->BytesAllocated, (uint64_t)bytes_added);
+                  }
+                  else if (_typeless == DXGI_FORMAT_R8_TYPELESS)
+                  {
+                    bytes_added       = (void*)(uintptr_t)(1LL * pDesc->Width * pDesc->Height);
+                    pDesc->Format     = DXGI_FORMAT_R16_FLOAT;
+                    InterlockedAdd64    (&p8BitTargetManager->BytesAllocated, (uint64_t)bytes_added);
+                  }
+                  else
+                  {
+                    // 32-bit total -> 64-bit
+                    bytes_added       = (void*)(uintptr_t)(4LL * pDesc->Width * pDesc->Height);
+                    InterlockedAdd64    (&p8BitTargetManager->BytesAllocated, (uint64_t)bytes_added);
+
+                    //
+                    // Sometimes rendering into an FP RenderTarget is going to produce invalid blend results,
+                    //   but we can still upgrade targets to a UNORM format with greater precision and get some
+                    //     remastering benefits...
+                    //
+                    if ( ( ( pDesc->Width  == swapDesc.BufferDesc.Width    &&
+                             pDesc->Height == swapDesc.BufferDesc.Height ) && (! bUpgradeNativeTargetsToFP) ) ||
+                             config.render.hdr.remaster_8bpc_as_unorm )
+                    {
+                      hdr_fmt_override = DXGI_FORMAT_R16G16B16A16_UNORM;
+                    }
                   }
 
                   pDesc->Format = hdr_fmt_override;
@@ -5881,6 +5949,14 @@ D3D11Dev_CreateTexture2DCore_Impl (
                 }
 
                 InterlockedIncrement (&p8BitTargetManager->CandidatesSeen);
+              }
+
+              else
+              {
+                SK_LOGi1 (
+                  L"Ignored potentially remasterable 8-bpc texture with dimensions (%dx%d;mips=%d)",
+                    pDesc->Width, pDesc->Height, pDesc->MipLevels
+                );
               }
             }
           }
@@ -5901,11 +5977,30 @@ D3D11Dev_CreateTexture2DCore_Impl (
 
             else
             {
-              // The actual texture pointer is optional, sometimes this function is
-              //   called simply to validate parameters.
+              // The actual texture pointer is optional, sometimes this
+              //   function is called simply to validate parameters.
               if (ppTexture2D != nullptr)
               {
+                SK_ComPtr <ID3DDestructionNotifier> pDestructionNotifier;
+                if (SUCCEEDED ((*ppTexture2D)->
+                        QueryInterface <ID3DDestructionNotifier>
+                                         (&pDestructionNotifier.p)))
+                {
+                  UINT                      destruction_callback_id = 0;
+                  pDestructionNotifier->RegisterDestructionCallback (
+                    is_uav ? SK_GET_REMASTER_DESTROY_UAV_CALLBACK (bpc):
+                             SK_GET_REMASTER_DESTROY_RT_CALLBACK  (bpc),
+                              bytes_added, &destruction_callback_id );
+                }
+
+                static int                  upgrade_num = 0;
                 SK_D3D11_FlagResourceFormatManipulated (*ppTexture2D, origDesc.Format);
+                SK_D3D11_SetDebugName                  (*ppTexture2D,
+                   SK_FormatStringW (L"[SK] Upgraded %hs %03d (%hs)",
+                                    is_uav ? "UAV" : "RT",
+                                            upgrade_num++,
+                                  SK_DXGI_FormatToStr (origDesc.Format).data () + 12));
+                                  //"DXGI_FORMAT_" = 12
               }
 
               return hr;
@@ -5975,7 +6070,8 @@ D3D11Dev_CreateTexture2DCore_Impl (
                      pInitialData->pSysMem   != nullptr &&
                      pDesc->SampleDesc.Count == 1       &&
                     (pDesc->MiscFlags        == 0x00 ||
-                     pDesc->MiscFlags        == D3D11_RESOURCE_MISC_RESOURCE_CLAMP)
+                     pDesc->MiscFlags        == D3D11_RESOURCE_MISC_RESOURCE_CLAMP ||
+                     pDesc->MiscFlags        == D3D11_RESOURCE_MISC_GENERATE_MIPS)
                                                         &&
                      //pDesc->MiscFlags        != 0x01  &&
                      pDesc->CPUAccessFlags   == 0x0     &&

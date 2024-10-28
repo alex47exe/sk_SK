@@ -224,8 +224,19 @@ D3D11Dev_CreateShaderResourceView_Override (
         bInvalidType = true;
       }
 
+      // Fix invalid mip levels
+      if (                                    pDesc != nullptr &&
+                                              pDesc ->Texture2D.MostDetailedMip > texDesc.MipLevels-1)
+      {
+        SK_LOGi1 (
+          L"Invalid MostDetailedMip (%d) Fixed for SRV with Resource MipLevels=%d "
+          L"during CreateShaderResourceView!",pDesc ->Texture2D.MostDetailedMip,  texDesc.MipLevels);
+          ((D3D11_SHADER_RESOURCE_VIEW_DESC *)pDesc)->Texture2D.MostDetailedMip = texDesc.MipLevels-1;
+      }
+
       // SK only overrides the format of RenderTargets, anything else is not our fault.
-      if ( bInvalidType || FAILED (SK_D3D11_CheckResourceFormatManipulation (pTex, desc.Format)) )
+      if ( bInvalidType || FAILED (SK_D3D11_CheckResourceFormatManipulation (pTex, desc.Format)) || (texDesc.SampleDesc.Count > 1 && (desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2DMS &&
+                                                                                                                                      desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2DMSARRAY)) )
       {
         if (texDesc.SampleDesc.Count > 1)
         {
@@ -908,19 +919,19 @@ D3D11Dev_CreateUnorderedAccessView_Override (
       DXGI_FORMAT newFormat = desc.Format;
       bool         override = false;
 
-      // Fix-up UAV's created using NULL desc's on Typeless SwapChain Backbuffers, or using DXGI_FORMAT_UNKNOWN
-      if (DirectX::IsTypeless (tex_desc.Format) && (pDesc == nullptr || pDesc->Format == DXGI_FORMAT_UNKNOWN || DirectX::IsTypeless (pDesc->Format)) &&
-                              (tex_desc.BindFlags & D3D11_BIND_RENDER_TARGET))
-      {
-        if (pDesc == nullptr)
-          pDesc    = &desc;
-
-        desc.Format = DirectX::MakeTypelessUNORM (
-                      DirectX::MakeTypelessFLOAT (tex_desc.Format));
-
-        newFormat = desc.Format;
-        override  = true;
-      }
+      ////// Fix-up UAV's created using NULL desc's on Typeless SwapChain Backbuffers, or using DXGI_FORMAT_UNKNOWN
+      ////if (DirectX::IsTypeless (tex_desc.Format) && (pDesc == nullptr || pDesc->Format == DXGI_FORMAT_UNKNOWN || DirectX::IsTypeless (pDesc->Format)) &&
+      ////                        (tex_desc.BindFlags & D3D11_BIND_RENDER_TARGET))
+      ////{
+      ////  if (pDesc == nullptr)
+      ////    pDesc    = &desc;
+      ////
+      ////  desc.Format = DirectX::MakeTypelessUNORM (
+      ////                DirectX::MakeTypelessFLOAT (tex_desc.Format));
+      ////
+      ////  newFormat = desc.Format;
+      ////  override  = true;
+      ////}
 
       if ( SK_D3D11_OverrideDepthStencil (newFormat) )
         override = true;
@@ -957,16 +968,28 @@ D3D11Dev_CreateUnorderedAccessView_Override (
         }
       }
 
-      if (                        pDesc == nullptr ||
-                                 (pDesc->Format  != DXGI_FORMAT_UNKNOWN &&
-           DirectX::MakeTypeless (pDesc->Format) !=
-           DirectX::MakeTypeless (tex_desc.Format)) )
+      if (                                                   pDesc == nullptr ||
+                                     (DXGI_FORMAT_UNKNOWN != pDesc->Format    &&
+           (! (SK_DXGI_IsFormatCastable    (tex_desc.Format, pDesc->Format) ||
+               SK_DXGI_IsUAVFormatCastable (tex_desc.Format, pDesc->Format))))
+         )
       {
+        SK_LOG1 ( ( L"Overriding Unordered Access View Format... pDesc=%p, pDesc->Format=%hs, tex_desc.Format=%hs",
+                      pDesc,
+                      pDesc != nullptr ? SK_DXGI_FormatToStr (  pDesc->Format).data () :
+                                           "DXGI_FORMAT_UNKNOWN",
+                                         SK_DXGI_FormatToStr (tex_desc.Format).data () ),
+                    L"DX11TexMgr" );
+
         override  = true;
 
         if (! DirectX::IsTypeless (tex_desc.Format))
           newFormat = DXGI_FORMAT_UNKNOWN; // Inherit resource's format
-        else // Guess the appropriate format
+        // Guess the appropriate format
+        //
+        //   * We should only ever get here if SK changed the format,
+        //       and SK's format overrides are limited to UNORM and FLOAT...
+        else
           newFormat = DirectX::MakeTypelessUNORM (
                       DirectX::MakeTypelessFLOAT (tex_desc.Format));
       }
@@ -1083,7 +1106,7 @@ D3D11Dev_CreateUnorderedAccessView1_Override (
         newFormat =
           cache_desc.desc.Format;
 
-        if (                                             pDesc != nullptr &&
+       if (                                              pDesc != nullptr &&
                                     pDesc->Format  != DXGI_FORMAT_UNKNOWN &&
              DirectX::MakeTypeless (pDesc->Format) !=
              DirectX::MakeTypeless (newFormat    )  )
@@ -1104,16 +1127,28 @@ D3D11Dev_CreateUnorderedAccessView1_Override (
         }
       }
 
-      if (                        pDesc == nullptr ||
-                                 (pDesc->Format  != DXGI_FORMAT_UNKNOWN &&
-           DirectX::MakeTypeless (pDesc->Format) !=
-           DirectX::MakeTypeless (tex_desc.Format)) )
+      if (                                                   pDesc == nullptr ||
+                                     (DXGI_FORMAT_UNKNOWN != pDesc->Format    &&
+           (! (SK_DXGI_IsFormatCastable    (tex_desc.Format, pDesc->Format) ||
+               SK_DXGI_IsUAVFormatCastable (tex_desc.Format, pDesc->Format))))
+         )
       {
+        SK_LOG1 ( ( L"Overriding Unordered Access View Format... pDesc=%p, pDesc->Format=%hs, tex_desc.Format=%hs",
+                      pDesc,
+                      pDesc != nullptr ? SK_DXGI_FormatToStr (  pDesc->Format).data () :
+                                           "DXGI_FORMAT_UNKNOWN",
+                                         SK_DXGI_FormatToStr (tex_desc.Format).data () ),
+                    L"DX11TexMgr" );
+
         override  = true;
 
         if (! DirectX::IsTypeless (tex_desc.Format))
           newFormat = DXGI_FORMAT_UNKNOWN; // Inherit resource's format
-        else // Guess the appropriate format
+        // Guess the appropriate format
+        //
+        //   * We should only ever get here if SK changed the format,
+        //       and SK's format overrides are limited to UNORM and FLOAT...
+        else
           newFormat = DirectX::MakeTypelessUNORM (
                       DirectX::MakeTypelessFLOAT (tex_desc.Format));
       }

@@ -6768,7 +6768,7 @@ SK_AMD_CheckForOpenGLInterop (LPCVOID lpReturnAddr, HWND& hWnd)
       HWND hWndFake =
         SK_Win32_CreateDummyWindow (0);
 
-      ShowWindow (
+      SK_ShowWindow (
              hWndFake, SW_HIDE);
       hWnd = hWndFake;
 
@@ -6791,6 +6791,16 @@ SK_AMD_CheckForVkInterop (LPCVOID lpReturnAddr)
   }
 
   return FALSE;
+}
+
+void
+SK_NV_DisableVulkanOn12Interop (void)
+{
+  SK_RunOnce (
+    SK_LOGi0 (L"Disabling D3D12/Vulkan Interop in favor of D3D11/Vulkan Interop.")
+  );
+
+  config.compatibility.disable_dx12_vk_interop = true;
 }
 
 HRESULT
@@ -6948,8 +6958,14 @@ _In_opt_       IDXGIOutput                     *pRestrictToOutput,
       rb.active_traits.bImplicitlyWaitable = false;
     }
 
-    SK_LOGs0 ( L"Direct3D12",
-               L" <*> Native D3D12 SwapChain Captured" );
+    if (config.compatibility.disable_dx12_vk_interop && pCmdQueue.p != nullptr)
+    {
+      SK_LOGs0 ( L"Vk Interop",
+                 L" <*> Vulkan/D3D12 SwapChain Disabled" );
+    }
+    else
+      SK_LOGs0 ( L"Direct3D12",
+                 L" <*> Native D3D12 SwapChain Captured" );
 
     if (! config.render.dxgi.allow_d3d12_footguns)
     {
@@ -7017,7 +7033,7 @@ _In_opt_       IDXGIOutput                     *pRestrictToOutput,
 
   _d3d12_rbk->drain_queue ();
 
-  ret =
+  ret = (config.compatibility.disable_dx12_vk_interop && pCmdQueue.p != nullptr) ? E_ACCESSDENIED :
     CreateSwapChainForHwnd_Original ( This, pDevice, hWnd, pDesc, pFullscreenDesc,
                                         pRestrictToOutput, &pTemp );
 
@@ -7039,6 +7055,9 @@ _In_opt_       IDXGIOutput                     *pRestrictToOutput,
     rb.d3d11.clearState ();
 
     rb.releaseOwnedResources ();
+
+    if (config.compatibility.disable_dx12_vk_interop && pCmdQueue.p != nullptr)
+      return E_NOTIMPL;
 
     ret =
       CreateSwapChainForHwnd_Original ( This, pDevice, hWnd, pDesc, pFullscreenDesc,
@@ -7092,20 +7111,23 @@ _In_opt_       IDXGIOutput                     *pRestrictToOutput,
         pTemp->GetFullscreenDesc (pOrigFullscreenDesc);
     }
 
-    // Cache Flip Model Chains
+    bool bNvInterop =
+      SK_Render_GetVulkanInteropSwapChainType (This) == SK_DXGI_VK_INTEROP_TYPE_NV;
+    bool bAmdInterop =
+      SK_Render_GetVulkanInteropSwapChainType (This) == SK_DXGI_VK_INTEROP_TYPE_AMD;
+
+    // Cache Flip Model Chains, and Detect Vulkan/DXGI Interop
     if (SK_DXGI_IsFlipModelSwapEffect (new_desc1.SwapEffect))
     {
       if (pDev11.p != nullptr)
       {
         extern bool SK_NV_D3D11_HasInteropDevice;
 
-        bool bNvInterop = false;
-
         //
         // Detect NVIDIA's Interop SwapChain
         //
-        if ( SK_GetModuleHandle (L"vulkan-1.dll") &&
-             (SK_GetCallerName ().find (L"nvoglv") != std::wstring::npos || SK_NV_D3D11_HasInteropDevice) )
+        if (bNvInterop || StrStrIW (SK_GetCallerName ().c_str (), L"nvoglv")   ||
+                          StrStrIW (SK_GetCallerName ().c_str (), L"vulkan-1") || SK_NV_D3D11_HasInteropDevice)
         {
           UINT                                 uiFlagAsInterop = SK_DXGI_VK_INTEROP_TYPE_NV;
           (*ppSwapChain)->SetPrivateData (
@@ -7137,8 +7159,7 @@ _In_opt_       IDXGIOutput                     *pRestrictToOutput,
         //
         // Detect AMD's Interop SwapChain
         //
-        if ( SK_GetModuleHandle (L"vulkan-1.dll") &&
-             SK_GetCallerName ().find (L"amdxc") != std::wstring::npos )
+        if (bAmdInterop || StrStrIW (SK_GetCallerName ().c_str (), L"amdxc"))
         {
           UINT                                 uiFlagAsInterop = SK_DXGI_VK_INTEROP_TYPE_AMD;
           (*ppSwapChain)->SetPrivateData (
@@ -7146,6 +7167,23 @@ _In_opt_       IDXGIOutput                     *pRestrictToOutput,
           );
 
           SK_LOGi0 (L"Detected a Vulkan/DXGI Interop SwapChain");
+        }
+
+        //
+        // Detect NVIDIA's Interop SwapChain (this is not its final form)
+        //
+        if (bNvInterop || StrStrIW (SK_GetCallerName ().c_str (), L"nvoglv") ||
+                          StrStrIW (SK_GetCallerName ().c_str (), L"vulkan-1"))
+        {
+          UINT                                 uiFlagAsInterop = SK_DXGI_VK_INTEROP_TYPE_NV;
+          (*ppSwapChain)->SetPrivateData (
+            SKID_DXGI_VK_InteropSwapChain, 4, &uiFlagAsInterop
+          );
+
+          // Shortly after this, NV's driver will check colorspace support,
+          //   we will fake non-support, and it will respond by creating
+          //     a D3D11 SwapChain...
+          SK_NV_DisableVulkanOn12Interop ();
         }
       }
     }
@@ -7913,6 +7951,15 @@ HRESULT
 WINAPI CreateDXGIFactory (REFIID   riid,
                     _Out_ void   **ppFactory)
 {
+  std::string iname = SK_GetDXGIFactoryInterfaceEx  (riid);
+  int         iver  = SK_GetDXGIFactoryInterfaceVer (riid);
+
+  UNREFERENCED_PARAMETER (iver);
+
+  DXGI_LOG_CALL_2 ( L"                    CreateDXGIFactory        ",
+                    L"%hs, %08" _L(PRIxPTR) L"h",
+                      iname.c_str (), (uintptr_t)ppFactory );
+
   if (ppFactory == nullptr)
     return E_INVALIDARG;
 
@@ -7929,76 +7976,6 @@ WINAPI CreateDXGIFactory (REFIID   riid,
     return CreateDXGIFactory2 (0x1, riid, ppFactory);
 
   return CreateDXGIFactory2 (0x0, riid, ppFactory);
-
-
-  if (config.render.dxgi.use_factory_cache)
-  {
-    bool current =
-      __SK_DXGI_FactoryCache.isCurrent ();
-
-    if (current)
-    {
-      if (__SK_DXGI_FactoryCache.hasInterface (riid))
-        return
-          __SK_DXGI_FactoryCache.addRef (ppFactory, riid);
-    }
-
-    else
-      __SK_DXGI_FactoryCache.reset ();
-  }
-
-  std::string iname = SK_GetDXGIFactoryInterfaceEx  (riid);
-  int         iver  = SK_GetDXGIFactoryInterfaceVer (riid);
-
-  UNREFERENCED_PARAMETER (iver);
-
-  DXGI_LOG_CALL_2 ( L"                    CreateDXGIFactory        ",
-                    L"%hs, %08" _L(PRIxPTR) L"h",
-                      iname.c_str (), (uintptr_t)ppFactory );
-
-  if (ppFactory == nullptr)
-    return DXGI_ERROR_INVALID_CALL;
-
-  *ppFactory = nullptr;
-
-  if (CreateDXGIFactory_Import == nullptr)
-  {
-    SK_RunOnce (SK_BootDXGI ());
-            WaitForInitDXGI ();
-  }
-
-  HRESULT ret =
-    DXGI_ERROR_NOT_CURRENTLY_AVAILABLE;
-
-  if (CreateDXGIFactory_Import != nullptr)
-  {
-    DXGI_CALL (ret, CreateDXGIFactory_Import (riid, ppFactory));
-  }
-
-  if ( ppFactory == nullptr ||
-      *ppFactory == nullptr)
-  {
-    ret = E_INVALIDARG;
-  }
-
-  if (SUCCEEDED (ret) && *ppFactory != nullptr)
-  {
-    SK_GetDXGIFactoryInterfaceVer ((IUnknown *)*ppFactory);
-    SK_DXGI_LazyHookFactory   ((IDXGIFactory *)*ppFactory);
-
-    if (config.render.dxgi.use_factory_cache)
-    {
-      __SK_DXGI_FactoryCache.addFactory (ppFactory, riid);
-    }
-  }
-
-  if ( ppFactory == nullptr ||
-      *ppFactory == nullptr)
-  {
-    ret = E_INVALIDARG;
-  }
-
-  return ret;
 }
 
 #ifdef _M_IX86
@@ -8010,45 +7987,8 @@ WINAPI CreateDXGIFactory1 (REFIID   riid,
                      _Out_ void   **ppFactory)
 
 {
-  if (ppFactory == nullptr)
-    return E_INVALIDARG;
-
-  *ppFactory = nullptr;
-
-  if (SK_COMPAT_IgnoreDxDiagnCall ())
-    return E_NOTIMPL;
-
-  if (SK_COMPAT_IgnoreNvCameraCall ())
-    return E_NOTIMPL;
-
-  // Forward this through CreateDXGIFactory2 to initialize DXGI Debug
-  if (config.render.dxgi.debug_layer)
-    return CreateDXGIFactory2 (0x1, riid, ppFactory);
-
-  return CreateDXGIFactory2 (0x0, riid, ppFactory);
-
-
-  if (config.render.dxgi.use_factory_cache && ppFactory != nullptr)
-  {
-    bool current =
-      __SK_DXGI_FactoryCache.isCurrent ();
-
-    if (current)
-    {
-      if (__SK_DXGI_FactoryCache.hasInterface (riid))
-        return
-          __SK_DXGI_FactoryCache.addRef (ppFactory, riid);
-    }
-
-    else
-      __SK_DXGI_FactoryCache.reset ();
-  }
-
-
   std::wstring iname = SK_UTF8ToWideChar (SK_GetDXGIFactoryInterfaceEx  (riid));
   int          iver  = SK_GetDXGIFactoryInterfaceVer (riid);
-
-  UNREFERENCED_PARAMETER (iver);
 
   //if (riid != IID_IDXGIFactory1 || (! __SK_DXGI_FactoryCache.isCurrent ()))
   //{
@@ -8063,66 +8003,52 @@ WINAPI CreateDXGIFactory1 (REFIID   riid,
   //}
 
   if (ppFactory == nullptr)
-    return DXGI_ERROR_INVALID_CALL;
+    return E_INVALIDARG;
 
   *ppFactory = nullptr;
 
-  if (CreateDXGIFactory1_Import == nullptr)
+  if (SK_COMPAT_IgnoreDxDiagnCall ())
+    return E_NOTIMPL;
+
+  if (SK_COMPAT_IgnoreNvCameraCall ())
+    return E_NOTIMPL;
+
+  HRESULT hr = E_UNEXPECTED;
+
+  // Forward this through CreateDXGIFactory2 to initialize DXGI Debug
+  if (config.render.dxgi.debug_layer)
+    hr = CreateDXGIFactory2 (0x1, riid, ppFactory);
+  else 
+    hr = CreateDXGIFactory2 (0x0, riid, ppFactory);
+
+  if (SUCCEEDED (hr))
   {
-    SK_RunOnce (SK_BootDXGI ());
-            WaitForInitDXGI ();
-  }
-
-  // Windows Vista does not have this function -- wrap it with CreateDXGIFactory
-  if (CreateDXGIFactory1_Import == nullptr)
-  {
-    dll_log->Log ( L"[   DXGI   ] >> Falling back to CreateDXGIFactory on "
-                   L"Vista..." );
-
-    return
-      CreateDXGIFactory (riid, ppFactory);
-  }
-
-  void *pFactory_ = nullptr;
-
-  HRESULT    ret;
-  DXGI_CALL (ret, CreateDXGIFactory1_Import (riid, &pFactory_));
-
-  if (ppFactory  == nullptr ||
-       pFactory_ == nullptr)
-  {
-    ret = E_INVALIDARG;
-  }
-
-  if (SUCCEEDED (ret) && pFactory_ != nullptr)
-  {
-    SK_GetDXGIFactoryInterfaceVer ((IUnknown *)pFactory_);
-
-#if 0
-    auto newFactory =
-      new SK_IWrapDXGIFactory ();
-
-    newFactory->pReal = (IDXGIFactory5 *)pFactory_;
-
-    *ppFactory = newFactory;
-#else
-    *ppFactory = pFactory_;
-#endif
-    SK_DXGI_LazyHookFactory ((IDXGIFactory *)*ppFactory);
-
-    if (config.render.dxgi.use_factory_cache)
+    // Detect NVIDIA Vulkan/DXGI Interop Factories
+    if (iver >= 7)
     {
-      __SK_DXGI_FactoryCache.addFactory (ppFactory, riid);
+      if (StrStrIW (SK_GetCallerName ().c_str (), L"nvoglv") ||
+          StrStrIW (SK_GetCallerName ().c_str (), L"vulkan-1"))
+      {
+        SK_NV_DisableVulkanOn12Interop ();
+        
+        UINT                                   uiFlagAsInterop = SK_DXGI_VK_INTEROP_TYPE_NV;
+          ((IDXGIFactory *)(*ppFactory))->SetPrivateData (
+            SKID_DXGI_VK_InteropSwapChain, 4, &uiFlagAsInterop
+          );
+      }
+    }
+
+    // XXX: Does AMD call CreateDXGIFactory, CreateDXGIFactory1, CreateDXGIFactoryor 2?
+    if (StrStrIW (SK_GetCallerName ().c_str (), L"amdxc"))
+    {
+      UINT                                   uiFlagAsInterop = SK_DXGI_VK_INTEROP_TYPE_AMD;
+        ((IDXGIFactory *)(*ppFactory))->SetPrivateData (
+          SKID_DXGI_VK_InteropSwapChain, 4, &uiFlagAsInterop
+        );
     }
   }
 
-  if ( ppFactory == nullptr ||
-      *ppFactory == nullptr)
-  {
-    ret = E_INVALIDARG;
-  }
-
-  return ret;
+  return hr;
 }
 
 HRESULT
@@ -8191,42 +8117,23 @@ WINAPI CreateDXGIFactory2 (UINT     Flags,
             WaitForInitDXGI ();
   }
 
-  // Windows 7 does not have this function -- wrap it with CreateDXGIFactory1
+  void* pFactory_ = nullptr;
+
+  HRESULT ret;
+
+  // Windows 7 does not have this function -- substitute it with CreateDXGIFactory1
   if (CreateDXGIFactory2_Import == nullptr)
   {
     dll_log->Log ( L"[   DXGI   ] >> Falling back to CreateDXGIFactory1 on"
                    L" Vista/7..." );
 
-    return
-      CreateDXGIFactory1 (riid, ppFactory);
-  }
-
-//#define LEAK_FACTORIES
-#ifdef  LEAK_FACTORIES
-  static IDXGIFactory* pLastFactory = nullptr;
-  static IID           lastIID      = {};
-
-  if (! IsEqualGUID (lastIID, riid))
-  {
-    if (pLastFactory != nullptr)
-        pLastFactory->Release ();
-
-    pLastFactory = nullptr;
+    DXGI_CALL (ret, CreateDXGIFactory1_Import (riid, &pFactory_));
   }
 
   else
   {
-    *ppFactory = pLastFactory;
-                 pLastFactory->AddRef ();
-
-    return S_OK;
-  }    
-#endif
-
-  void* pFactory_ = nullptr;
-
-  HRESULT    ret;
-  DXGI_CALL (ret, CreateDXGIFactory2_Import (Flags, riid, &pFactory_));
+    DXGI_CALL (ret, CreateDXGIFactory2_Import (Flags, riid, &pFactory_));
+  }
 
   if ( ppFactory == nullptr ||
        pFactory_ == nullptr)
@@ -8255,12 +8162,6 @@ WINAPI CreateDXGIFactory2 (UINT     Flags,
     {
       __SK_DXGI_FactoryCache.addFactory (ppFactory, riid);
     }
-
-#ifdef  LEAK_FACTORIES
-    lastIID      =  riid;
-    pLastFactory = (IDXGIFactory *)*ppFactory;
-    pLastFactory->AddRef ();
-#endif
   }
 
   return     ret;
@@ -8820,8 +8721,8 @@ IDXGISwapChain3_CheckColorSpaceSupport_Override (
 
   // NVIDIA will fallback to a D3D11 SwapChain for interop if we tell it that
   //   G22_NONE_P709 is unsupported.
-  if (config.compatibility.disable_dx12_vk_interop)
-  {
+  if (config.compatibility.disable_dx12_vk_interop || StrStrIW (SK_GetCallerName ().c_str (), L"nvoglv") || StrStrIW (SK_GetCallerName ().c_str (), L"vulkan-1"))
+  {   config.compatibility.disable_dx12_vk_interop = true; // Set this so it will trigger even if called by something wrapping the SwapChain
     if (ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709)
     {
       if (SK_GetCallingDLL () != SK_GetDLL ())

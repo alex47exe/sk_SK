@@ -508,6 +508,89 @@ SetThreadExecutionState_Detour (EXECUTION_STATE esFlags)
 // Parts of the Win32 API that are safe to hook from DLL Main
 void SK_Input_PreInit (void)
 {
+  auto SK_SDL_SetDefaultBehavior = [](const char* szVarName,
+                                      const char* szValue,
+                                      bool        force_override =
+                             config.compatibility.sdl_sanity_level > 1)
+  {
+    bool set_value = force_override;
+
+    if (! GetEnvironmentVariableA (szVarName, nullptr, 0))
+    {
+      if (GetLastError () == ERROR_ENVVAR_NOT_FOUND)
+      {
+        // No value was set, establish a default now.
+        set_value = true;
+      }
+    }
+
+    if (set_value)
+    {
+      SetEnvironmentVariableA (szVarName, szValue);
+    }
+  };
+
+  if (config.compatibility.sdl_sanity_level > 0)
+  {
+    // Disable Windows.Gaming.Input in SDL, use XInput instead
+    SK_SDL_SetDefaultBehavior ("SDL_JOYSTICK_WGI",      "0");
+    SK_SDL_SetDefaultBehavior ("SDL_XINPUT_ENABLED",    "1");
+
+    // Disable RawInput for gamepad polling, use HID instead
+    SK_SDL_SetDefaultBehavior ("SDL_JOYSTICK_RAWINPUT", "0");
+    SK_SDL_SetDefaultBehavior ("SDL_JOYSTICK_HIDAPI",   "1");
+
+    // Use a dedicated thread for input polling (default)
+    //   and allow it to run even when the game window is not foreground.
+    SK_SDL_SetDefaultBehavior ("SDL_JOYSTICK_THREAD",                  "1");
+    SK_SDL_SetDefaultBehavior ("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+
+    // Disable bad window management behavior so that SK can take full control
+    SK_SDL_SetDefaultBehavior ("SDL_HINT_FORCE_RAISEWINDOW",       "0");
+    SK_SDL_SetDefaultBehavior ("SDL_ALLOW_TOPMOST",                "0");
+    //SK_SDL_SetDefaultBehavior ("SDL_WINDOWS_ENABLE_MESSAGELOOP", "0");
+  }
+
+  // Disable generic DirectInput devices
+  if (config.input.gamepad.dinput.blackout_gamepads ||
+      config.compatibility.sdl.allow_direct_input == 0)
+    SK_SDL_SetDefaultBehavior ("SDL_DIRECTINPUT_ENABLED","0", true);
+  else if (config.compatibility.sdl.allow_direct_input == 1)
+    SK_SDL_SetDefaultBehavior ("SDL_DIRECTINPUT_ENABLED","1", true);
+
+  auto SK_SDL_SetOverride = [&](int cfg_var, const char* szName)
+  {
+    if (cfg_var == -1)
+      return;
+
+    SK_SDL_SetDefaultBehavior (
+      szName, std::to_string (cfg_var).c_str (), true
+    );
+  };
+
+  auto SK_SDL_SetOverrideFloat = [&](float cfg_var, const char* szName)
+  {
+    if (cfg_var == -1.0f)
+      return;
+
+    SK_SDL_SetDefaultBehavior (
+      szName, std::to_string (cfg_var).c_str (), true
+    );
+  };
+
+  const auto& sdl =
+    config.compatibility.sdl;
+
+  SK_SDL_SetOverride (sdl.allow_wgi,                  "SDL_JOYSTICK_WGI");
+  SK_SDL_SetOverride (sdl.allow_xinput,               "SDL_XINPUT_ENABLED");
+  SK_SDL_SetOverride (sdl.allow_raw_input,            "SDL_JOYSTICK_RAWINPUT");
+  SK_SDL_SetOverride (sdl.allow_hid,                  "SDL_JOYSTICK_HIDAPI");
+  SK_SDL_SetOverride (sdl.use_joystick_thread,        "SDL_JOYSTICK_THREAD");
+  SK_SDL_SetOverride (sdl.poll_sentinel,              "SDL_POLL_SENTINEL");
+  SK_SDL_SetOverride (sdl.allow_all_ps_bt_features,   "SDL_JOYSTICK_HIDAPI_PS4_RUMBLE");
+  SK_SDL_SetOverride (sdl.allow_all_ps_bt_features,   "SDL_JOYSTICK_HIDAPI_PS5_RUMBLE");
+  SK_SDL_SetOverrideFloat (sdl.switch_led_brightness, "SDL_JOYSTICK_HIDAPI_JOYCON_HOME_LED");
+
   SK_Input_PreHookWinHook  ();
   SK_Input_PreHookCursor   ();
   SK_Input_PreHookKeyboard ();
@@ -559,6 +642,15 @@ SK_Input_Init (void)
   static bool        once = false;
   if (std::exchange (once, true))
     return;
+
+  if (SK_GetDLLRole () != DLL_ROLE::DInput8)
+  {
+    if (SK_GetModuleHandle (L"dinput8.dll"))
+      SK_Input_HookDI8  ();
+
+    if (SK_GetModuleHandle (L"dinput.dll"))
+      SK_Input_HookDI7  ();
+  }
 
   SK_Input_InitKeyboard ();
 

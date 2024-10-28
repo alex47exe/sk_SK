@@ -1365,6 +1365,13 @@ ImGui_WndProcHandler ( HWND   hWnd,   UINT   msg,
 
     switch (LOWORD (wParam & 0xFFF0))
     {
+      case SC_MINIMIZE:
+      {
+        // Minimizing while these things are set would cause problems
+        if (config.window.borderless || !SK_Window_HasBorder (game_window.hWnd))
+          return 1;
+      } break;
+
       case SC_RESTORE:
       case SC_SIZE:
       case SC_PREVWINDOW:
@@ -2106,9 +2113,9 @@ SK_ImGui_PollGamepad_EndFrame (XINPUT_STATE* pState)
               IsMinimized (hWndLastApp) ? SW_SHOWNORMAL
                                         : SW_SHOW;
 
-            ShowWindow                 (hWndLastApp, show_cmd);
+            SK_ShowWindow              (hWndLastApp, show_cmd);
             SK_RealizeForegroundWindow (hWndLastApp);
-            ShowWindow                 (hWndLastApp, show_cmd);
+            SK_ShowWindow              (hWndLastApp, show_cmd);
           }
 
           bChordActivated = true;
@@ -3308,8 +3315,30 @@ SK_ImGui_User_NewFrame (void)
     }
   }
 
+  // Check if the mouse is within the actual render area (device HWND)
+  //   in order to stop processing mouse clicks in things like emulators
+  //     with multiple windows and drop-down menus that may overlap SK's
+  //       control panel...
+  const auto& windows =
+    SK_GetCurrentRenderBackend ().windows;
 
-  if (game_window.mouse.inside)
+  const HWND
+    hWndDevice = windows.device.hwnd,
+    hWndFocus  = windows.focus. hwnd,
+    hWndGame   =    game_window.hWnd,
+    hWndMouse0 =
+       hWndDevice != 0 && IsWindow (hWndDevice) ? hWndDevice : nullptr,
+    hWndMouse1 =
+       hWndFocus  != 0 && IsWindow (hWndFocus) &&
+                      GetTopWindow (hWndFocus) == hWndDevice ? hWndFocus 
+                                                             : hWndGame != hWndFocus ?
+                                                               hWndGame              : nullptr;
+
+  if ( game_window.mouse.inside &&
+        ( SK_GetForegroundWindow ()    == hWndMouse0   ||
+          WindowFromPoint (cursor_pos) == hWndMouse0 ) ||
+        ( SK_GetForegroundWindow ()    == hWndMouse1   ||
+          WindowFromPoint (cursor_pos) == hWndMouse1 ) )
   {
     SK_ImGui_Cursor.ScreenToLocal (&cursor_pos);
 
@@ -3319,15 +3348,6 @@ SK_ImGui_User_NewFrame (void)
       if ( abs (SK_ImGui_Cursor.pos.x - cursor_pos.x) > 3 ||
            abs (SK_ImGui_Cursor.pos.y - cursor_pos.y) > 3 )
       {
-#if 0
-#define SK_LOG_ONCE_N(lvl,expr,src) { static bool _once = false; if ((! std::exchange (_once, true))) SK_LOG##lvl (expr,src); }
-#define SK_LOG_ONCE(expr,src) \
-          SK_LOG_ONCE_N(0,expr,src);
-
-        SK_LOG_ONCE ( ( L"Mouse input appears to be inconsistent..." ),
-                        L"Win32Input" );
-#endif
-
         SK_ImGui_Cursor.pos = cursor_pos;
       }
     }
@@ -3341,27 +3361,35 @@ SK_ImGui_User_NewFrame (void)
   }
 
   // Cursor stops being treated as idle when it's not in the game window :)
-  else
+  else {
+    io.MousePos               = ImVec2 (-FLT_MAX, -FLT_MAX);
     SK_ImGui_Cursor.last_move = SK::ControlPanel::current_time;
+    game_window.mouse.inside  = false;
+  }
 
-  bool bFocused =
-    SK_IsGameWindowFocused (),
-       bActive  =
-    SK_IsGameWindowActive  ();
+  const bool bActive =
+    SK_IsGameWindowActive ();
 
-  std::ignore = bFocused;
-
-  if (bActive || game_window.mouse.inside)
-  { if (new_input && bActive) { for ( UINT                 i = 7 ; i < 255 ; ++i )
-                io.KeysDown [i] = ((SK_GetAsyncKeyState (i) & 0x8000) != 0x0);
+  if (bActive && new_input)
+  {
+    for (UINT i = 7 ; i < 255 ; ++i)
+    {
+      io.KeysDown [i] =
+        ((SK_GetAsyncKeyState (i) & 0x8000) != 0x0);
     }
-    io.MouseDown [0] = ((SK_GetAsyncKeyState (VK_LBUTTON) ) < 0);
-    io.MouseDown [1] = ((SK_GetAsyncKeyState (VK_RBUTTON) ) < 0);
-    io.MouseDown [2] = ((SK_GetAsyncKeyState (VK_MBUTTON) ) < 0);
-    io.MouseDown [3] = ((SK_GetAsyncKeyState (VK_XBUTTON1)) < 0);
-    io.MouseDown [4] = ((SK_GetAsyncKeyState (VK_XBUTTON2)) < 0);
-  } else { RtlZeroMemory (&io.KeysDown [7], sizeof (bool) * 248);
-           RtlZeroMemory ( io.MouseDown,    sizeof (bool) * 5); }
+  }
+
+  if (! bActive)
+    RtlZeroMemory (&io.KeysDown [7], sizeof (bool) * 248);
+
+  if (game_window.mouse.inside)
+  {
+    io.MouseDown [0] = ((SK_GetAsyncKeyState (VK_LBUTTON) ) & 0x8000) != 0x0;
+    io.MouseDown [1] = ((SK_GetAsyncKeyState (VK_RBUTTON) ) & 0x8000) != 0x0;
+    io.MouseDown [2] = ((SK_GetAsyncKeyState (VK_MBUTTON) ) & 0x8000) != 0x0;
+    io.MouseDown [3] = ((SK_GetAsyncKeyState (VK_XBUTTON1)) & 0x8000) != 0x0;
+    io.MouseDown [4] = ((SK_GetAsyncKeyState (VK_XBUTTON2)) & 0x8000) != 0x0;
+  }
 
   SK_ImGui_PollGamepad ();
 
@@ -3529,7 +3557,7 @@ SK_ImGui_User_NewFrame (void)
   else
     io.MouseDrawCursor = false;
 
-  
+
   if (bActive)
   {
     if (SK_ImGui_Active () || SK_ImGui_WantMouseCapture ())
@@ -3541,6 +3569,29 @@ SK_ImGui_User_NewFrame (void)
       SK_ClipCursor (&game_window.actual.window);
     else
       SK_ClipCursor (&game_window.cursor_clip);
+
+    // Implement Minimizing/Restoring Borderless Games Using Windows+Down/Up
+    static bool last_down = io.KeysDown [VK_DOWN];
+    static bool last_up   = io.KeysDown [VK_UP];
+    if (     (io.KeysDown [VK_LWIN] || io.KeysDown [VK_RWIN]) && io.KeysDown [VK_DOWN] && !last_down && !SK_Window_HasBorder (game_window.hWnd))
+    {
+      if (! IsIconic  (game_window.hWnd))
+      {
+        //if (IsMaximized (game_window.hWnd))
+        //  SK_ShowWindow (game_window.hWnd, SW_RESTORE);
+        //else
+          SK_ShowWindow (game_window.hWnd, SW_MINIMIZE);
+      }
+    }
+    else if ((io.KeysDown [VK_LWIN] || io.KeysDown [VK_RWIN]) && io.KeysDown [VK_UP]   && !last_up   && !SK_Window_HasBorder (game_window.hWnd))
+    {
+      if (IsIconic    (game_window.hWnd))
+        SK_ShowWindow (game_window.hWnd, SW_SHOWNOACTIVATE);
+      //else
+      //  ShowWindow (game_window.hWnd, SW_MAXIMIZE); // This causes some games to break due to implicit activation
+    }
+    last_down = io.KeysDown [VK_DOWN];
+    last_up   = io.KeysDown [VK_DOWN];
   }
 
 

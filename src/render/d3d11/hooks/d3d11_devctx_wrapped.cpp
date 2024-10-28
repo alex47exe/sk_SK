@@ -271,6 +271,9 @@ public:
     deferred_ =
       SK_D3D11_IsDevCtxDeferred (pReal);
 
+    if (deferred_)
+      type_ = D3D11_DEVICE_CONTEXT_DEFERRED;
+
     ////pMultiThread.p =
     ////  SK_D3D11_WrapperFactory->wrapMultithread (this);
   };
@@ -301,6 +304,9 @@ public:
     deferred_ =
       SK_D3D11_IsDevCtxDeferred (pReal);
 
+    if (deferred_)
+      type_ = D3D11_DEVICE_CONTEXT_DEFERRED;
+
     ////pMultiThread =
     ////  SK_D3D11_WrapperFactory->wrapMultithread (this);
   };
@@ -330,6 +336,9 @@ public:
     deferred_ =
       SK_D3D11_IsDevCtxDeferred (pReal);
 
+    if (deferred_)
+      type_ = D3D11_DEVICE_CONTEXT_DEFERRED;
+
     ////pMultiThread.p =
     ////  SK_D3D11_WrapperFactory->wrapMultithread (this);
   };
@@ -358,6 +367,9 @@ public:
     deferred_ =
       SK_D3D11_IsDevCtxDeferred (pReal);
 
+    if (deferred_)
+      type_ = D3D11_DEVICE_CONTEXT_DEFERRED;
+
     ////pMultiThread.p =
     ////  SK_D3D11_WrapperFactory->wrapMultithread (this);
   };
@@ -377,6 +389,9 @@ public:
 
     deferred_ =
       SK_D3D11_IsDevCtxDeferred (pReal);
+
+    if (deferred_)
+      type_ = D3D11_DEVICE_CONTEXT_DEFERRED;
 
     ////pMultiThread.p =
     ////  SK_D3D11_WrapperFactory->wrapMultithread (this);
@@ -596,14 +611,14 @@ public:
       SK_ComPtr <ID3D11Device> pDevice;
       pReal->GetDevice       (&pDevice.p);
 
-      SK_D3D11_ReleaseCachedShaders (pDevice.p, sk_shader_class::Vertex);
-      SK_D3D11_ReleaseCachedShaders (pDevice.p, sk_shader_class::Pixel);
-      SK_D3D11_ReleaseCachedShaders (pDevice.p, sk_shader_class::Geometry);
-      SK_D3D11_ReleaseCachedShaders (pDevice.p, sk_shader_class::Domain);
-      SK_D3D11_ReleaseCachedShaders (pDevice.p, sk_shader_class::Hull);
-      SK_D3D11_ReleaseCachedShaders (pDevice.p, sk_shader_class::Compute);
+      SK_D3D11_ReleaseCachedShaders       (pDevice.p, sk_shader_class::Vertex);
+      SK_D3D11_ReleaseCachedShaders       (pDevice.p, sk_shader_class::Pixel);
+      SK_D3D11_ReleaseCachedShaders       (pDevice.p, sk_shader_class::Geometry);
+      SK_D3D11_ReleaseCachedShaders       (pDevice.p, sk_shader_class::Domain);
+      SK_D3D11_ReleaseCachedShaders       (pDevice.p, sk_shader_class::Hull);
+      SK_D3D11_ReleaseCachedShaders       (pDevice.p, sk_shader_class::Compute);
 
-      SK_D3D11_SetWrappedImmediateContext (pDevice, nullptr);
+    //SK_D3D11_SetWrappedImmediateContext (pDevice, nullptr);
       SK_DXGI_ReportLiveObjects           (pDevice);
 
       SK_TLS *pTLS =
@@ -1054,9 +1069,6 @@ public:
     _In_                                UINT              GetDataFlags ) override
   {
     TraceAPI
-
-    if (pAsync == nullptr)
-      return E_INVALIDARG;
 
     return
       pReal->GetData ( pAsync,
@@ -2490,8 +2502,7 @@ public:
   {
     TraceAPI
 
-    return
-      pReal->GetType ();
+    return type_;
   }
 
   UINT STDMETHODCALLTYPE GetContextFlags (void) override
@@ -2981,11 +2992,12 @@ public:
 
 protected:
 private:
-  volatile LONG         refs_           = 1;
-  unsigned int          ver_            = 0;
-  bool                  deferred_       = false;
-  UINT                  dev_ctx_handle_ = UINT_MAX;
-  ID3D11DeviceContext*  pReal           = nullptr;
+  volatile LONG             refs_           = 1;
+  unsigned int              ver_            = 0;
+  bool                      deferred_       = false;
+  UINT                      dev_ctx_handle_ = UINT_MAX;
+  ID3D11DeviceContext*      pReal           = nullptr;
+  D3D11_DEVICE_CONTEXT_TYPE type_           = D3D11_DEVICE_CONTEXT_IMMEDIATE;
   ///SK_ComPtr
   ///  <SK_IWrapD3D11Multithread>
   ///                      pMultiThread    = nullptr;
