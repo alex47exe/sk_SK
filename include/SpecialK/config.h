@@ -33,6 +33,7 @@
 #include <filesystem>
 #include <intsafe.h>
 
+#include <SpecialK/diagnostics/cpu.h>
 #include <SpecialK/render/backend.h>
 #include <SpecialK/window.h>
 #include <SpecialK/core.h>
@@ -187,9 +188,12 @@ struct sk_config_t
                                 cpuid [1], cpuid [2]);
 #endif
 
-
     // MWAITX = ECX Bit 29 (8000_0001h)
     SK_CPU_HasMWAITX = (cpuid [2] & (1 << 28)) != 0;
+
+    if (! SK_CPU_HasMWAITX)
+          SK_CPU_HasMWAITX =
+      SK_CPU_TestForMWAITX ();
 
     SK_PerfTicksPerMs = SK_PerfFreq / 1000LL;
 
@@ -1045,6 +1049,7 @@ struct sk_config_t
       bool    capture_gamepad     = false;
       bool    use_hw_cursor       =  true;
       bool    use_raw_input       =  true;
+      int     game_set_hw_cursor  =     0; // Not stored in INI, the number of times
     } ui;
 
     struct gamepad_s {
@@ -1128,6 +1133,8 @@ struct sk_config_t
         int   max_allowed_buffers =     3;
         bool  calc_latency        = false;
       } hid;
+
+      bool    blocks_screensaver  =  true;
     } gamepad;
 
     struct keyboard_s {
@@ -1206,7 +1213,8 @@ struct sk_config_t
     bool    fullscreen          = false;
     bool    multi_monitor_mode  = false;
     bool    disable_screensaver = false;
-    bool    fullscreen_no_saver =  true; // In Fullscreen, disable screensaver?
+    bool    fullscreen_no_saver = false; // In Fullscreen, disable screensaver?
+    bool    manage_screensaver  = false;
     bool    treat_fg_as_active  = false; // Compat. hack for NiNoKuni 2
     bool    dont_hook_wndproc   = false;
     bool    activate_at_start   = false;
@@ -1703,6 +1711,7 @@ enum class SK_GAME_ID
   SonicGenerations,             // SONIC_GENERATIONS.exe
   BrokenSword,                  // BS1R.exe
   YsX,                          // YsX.exe
+  Transistor,                   // Transistor.exe
 
   UNKNOWN_GAME               = 0xffff
 };

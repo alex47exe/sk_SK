@@ -5532,12 +5532,12 @@ D3D11Dev_CreateTexture2DCore_Impl (
   }
 #endif
 
-  SK_ComQIPtr <ID3D11Device>        pDev    (This);
-  SK_ComPtr   <ID3D11DeviceContext> pDevCtx (rb.d3d11.immediate_ctx);
+  SK_ComQIPtr <ID3D11Device> pDev (This);
+  ID3D11DeviceContext*       pDevCtx =
+    (ID3D11DeviceContext *)rb.swapchain.p;
 
   // Only from devices belonging to the game, no wrappers or Ansel
   SK_ComQIPtr <IDXGISwapChain> pSwapChain (rb.swapchain);
-
   if (rb.device.p == nullptr)
   {
     // Better late than never
@@ -5549,12 +5549,14 @@ D3D11Dev_CreateTexture2DCore_Impl (
 
         if (SUCCEEDED (pSwapChain->GetDevice (IID_PPV_ARGS (&pSwapDev.p))) && pDev.IsEqualObject (pSwapDev))
         {
-          This->GetImmediateContext (&pDevCtx.p);
+          This->GetImmediateContext (&pDevCtx);
              rb.d3d11.immediate_ctx = pDevCtx;
              rb.setDevice            (pDev);
 
           SK_LOG0 ( (L"Active D3D11 Device Context Established on first Texture Upload" ),
                      L"  D3D 11  " );
+
+          pDevCtx->Release ();
         }
       }
     }
@@ -8565,6 +8567,9 @@ D3D11CreateDeviceAndSwapChain_Detour (IDXGIAdapter          *pAdapter,
     {
       pNvInteropSingleton = ret_device;
                             ret_device->AddRef (); // Keep-Alive
+
+      if (rb.device == nullptr)
+          rb.setDevice (ret_device);
     }
 
     // Stash the pointer to this device so that we can test equality on wrapped devices
@@ -8577,49 +8582,49 @@ D3D11CreateDeviceAndSwapChain_Detour (IDXGIAdapter          *pAdapter,
       // This all should be handled by a hook on CreateSwapChain or CreateSwapChainForHwnd
       // 
 
-      //const bool dummy_window =      swap_chain_desc.OutputWindow == 0 ||
-      //  SK_Win32_IsDummyWindowClass (swap_chain_desc.OutputWindow);
-      //
-      //if (! dummy_window)
-      //{
-      //  auto& windows =
-      //    rb.windows;
-      //
-      //  if ( ReadULongAcquire (&rb.thread) == 0x00 ||
-      //       ReadULongAcquire (&rb.thread) == SK_Thread_GetCurrentId () )
-      //  {
-      //    if (               windows.device != nullptr    &&
-      //         swap_chain_desc.OutputWindow != nullptr    &&
-      //         swap_chain_desc.OutputWindow != windows.device )
-      //      SK_LOG0 ( (L"Game created a new window?!"), __SK_SUBSYSTEM__ );
-      //  }
-      //
-      //  else
-      //  {
-      //    wchar_t                         wszClass [128] = { };
-      //    RealGetWindowClassW (
-      //      swap_chain_desc.OutputWindow, wszClass, 127 );
-      //
-      //    SK_LOG0 ( ( L"Installing Window Hooks for Window Class: '%ws'", wszClass ),
-      //                __SK_SUBSYSTEM__ );
-      //
-      //    static HWND hWndLast =
-      //      swap_chain_desc.OutputWindow;
-      //
-      //    if ((! IsWindow (windows.getDevice ())) || hWndLast != swap_chain_desc.OutputWindow)
-      //    {
-      //      hWndLast            = swap_chain_desc.OutputWindow;
-      //      windows.setDevice    (swap_chain_desc.OutputWindow);
-      //      SK_InstallWindowHook (swap_chain_desc.OutputWindow);
-      //    }
-      //
-      //    else
-      //    {
-      //      SK_LOG0 ( ( L"Ignored because a window hook already exists..."),
-      //                  __SK_SUBSYSTEM__ );
-      //    }
-      //  }
-      //}
+      const bool dummy_window =      swap_chain_desc.OutputWindow == 0 ||
+        SK_Win32_IsDummyWindowClass (swap_chain_desc.OutputWindow);
+      
+      if (! dummy_window)
+      {
+        auto& windows =
+          rb.windows;
+      
+        if ( ReadULongAcquire (&rb.thread) == 0x00 ||
+             ReadULongAcquire (&rb.thread) == SK_Thread_GetCurrentId () )
+        {
+          if (               windows.device != nullptr    &&
+               swap_chain_desc.OutputWindow != nullptr    &&
+               swap_chain_desc.OutputWindow != windows.device )
+            SK_LOG0 ( (L"Game created a new window?!"), __SK_SUBSYSTEM__ );
+        }
+      
+        else
+        {
+          wchar_t                         wszClass [128] = { };
+          RealGetWindowClassW (
+            swap_chain_desc.OutputWindow, wszClass, 127 );
+      
+          SK_LOG0 ( ( L"Installing Window Hooks for Window Class: '%ws'", wszClass ),
+                      __SK_SUBSYSTEM__ );
+      
+          static HWND hWndLast =
+            swap_chain_desc.OutputWindow;
+      
+          if ((! IsWindow (windows.getDevice ())) || hWndLast != swap_chain_desc.OutputWindow)
+          {
+            hWndLast            = swap_chain_desc.OutputWindow;
+            windows.setDevice    (swap_chain_desc.OutputWindow);
+            SK_InstallWindowHook (swap_chain_desc.OutputWindow);
+          }
+      
+          else
+          {
+            SK_LOG0 ( ( L"Ignored because a window hook already exists..."),
+                        __SK_SUBSYSTEM__ );
+          }
+        }
+      }
     }
 
 #ifdef SK_D3D11_WRAP_IMMEDIATE_CTX

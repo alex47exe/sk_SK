@@ -2507,6 +2507,21 @@ void SK_Inject_BroadcastExitNotify (bool force)
   {
     SK_Inject_WakeUpSKIF ();
 
+    if (config.window.always_on_top == SmartAlwaysOnTop)
+    {
+      SK_AutoHandle hInjectAckEx (
+        OpenEvent ( EVENT_ALL_ACCESS, FALSE,
+               LR"(Local\SKIF_InjectAckEx)" )
+      );
+      SK_AutoHandle hInjectAck (
+        OpenEvent ( EVENT_ALL_ACCESS, FALSE,
+                   LR"(Local\SKIF_InjectAck)" )
+      );
+
+      SetEvent (hInjectAckEx.m_h);
+      SetEvent (hInjectAck  .m_h);
+    }
+
     SetEvent (hInjectExitAckEx.m_h);
   }
 

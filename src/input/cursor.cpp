@@ -125,10 +125,10 @@ ShowCursor_Detour (BOOL bShow)
 
   const bool bCanHide =
     ((config.input.cursor.manage == false || config.input.cursor.timeout == 0 || SK_Window_IsCursorActive () == false) &&
-                ((! bIsCapturing) || config.input.ui.use_hw_cursor == false)) || SK_ImGui_Cursor.force == sk_cursor_state::Hidden;
+                ((! bIsCapturing) || SK_ImGui_WantHWCursor () == false))      || SK_ImGui_Cursor.force == sk_cursor_state::Hidden;
   const bool bCanShow =
     ((config.input.cursor.manage == false ||(config.input.cursor.timeout != 0 && SK_Window_IsCursorActive () == true)) &&
-                ((! bIsCapturing) || config.input.ui.use_hw_cursor == true )) || SK_ImGui_Cursor.force == sk_cursor_state::Visible;
+                ((! bIsCapturing) || SK_ImGui_WantHWCursor () == true))       || SK_ImGui_Cursor.force == sk_cursor_state::Visible;
 
 
   static int expected_val = 0;
@@ -154,7 +154,7 @@ ShowCursor_Detour (BOOL bShow)
   {
     if (bIsCapturing)
     {
-      bShow = config.input.ui.use_hw_cursor;
+      bShow = SK_ImGui_WantHWCursor ();
     }
 
     if (bIsShowing)
@@ -200,7 +200,7 @@ ShowCursor_Detour (BOOL bShow)
   else if (bIsCapturing || SK_ImGui_Cursor.force != sk_cursor_state::None)
   {
     if (SK_ImGui_Cursor.force == sk_cursor_state::None)
-      bShow = config.input.ui.use_hw_cursor;
+      bShow = SK_ImGui_WantHWCursor ();
 
     if (bShow)
     {
@@ -399,7 +399,7 @@ sk_imgui_cursor_s::ScreenToLocal (LPPOINT lpPoint)
 HCURSOR
 ImGui_DesiredCursor (void)
 {
-  if (! config.input.ui.use_hw_cursor)
+  if (! SK_ImGui_WantHWCursor ())
     return 0;
 
   static HCURSOR last_cursor = nullptr;
@@ -445,7 +445,7 @@ ImGuiCursor_Impl (void)
   //
   // Hardware Cursor
   //
-  if (config.input.ui.use_hw_cursor)
+  if (SK_ImGui_WantHWCursor ())
   {
     io.MouseDrawCursor =
       ( (! SK_ImGui_Cursor.idle) && SK_ImGui_IsMouseRelevant () && (! SK_InputUtil_IsHWCursorVisible ()));
@@ -490,7 +490,7 @@ sk_imgui_cursor_s::showSystemCursor (bool system)
 void
 sk_imgui_cursor_s::activateWindow (bool active)
 {
-  if (active && config.input.ui.use_hw_cursor)
+  if (active && SK_ImGui_WantHWCursor ())
   {
     if (SK_ImGui_IsAnythingHovered ())//SK_ImGui_IsMouseRelevant ())
     {
@@ -558,6 +558,12 @@ SK_ImGui_WantMouseCaptureEx (DWORD dwReasonMask)
 }
 
 
+bool
+SK_ImGui_WantHWCursor (void)
+{
+  return
+    ( config.input.ui.use_hw_cursor );
+}
 
 bool
 SK_ImGui_WantMouseCapture (void)
@@ -807,9 +813,12 @@ SetCursor_Detour (
 {
   SK_LOG_FIRST_CALL
 
+  if (hCursor != 0)
+    SK_ImGui_Cursor.times_set++;
+
   if ((SK_ImGui_WantMouseCapture () && SK_ImGui_IsAnythingHovered ()) || ImGui::GetIO ().WantCaptureMouse)
   {
-    if (! config.input.ui.use_hw_cursor)
+    if (! SK_ImGui_WantHWCursor ())
       return 0;
 
     hCursor =
@@ -941,18 +950,22 @@ GetCursorInfo_Detour (PCURSORINFO pci)
 
 float SK_SO4_MouseScale = 2.467f;
 
+static POINT s_GameSetCursorPos;
+
 BOOL
 WINAPI
 GetCursorPos_Detour (LPPOINT lpPoint)
 {
   SK_LOG_FIRST_CALL
 
+  if (lpPoint == nullptr)
+    return FALSE;
+
   if (SK_WantBackgroundRender () && (! SK_IsGameWindowActive ()))
   {
     SK_Win32_Backend->markHidden (sk_win32_func::GetCursorPos);
 
     *lpPoint = SK_ImGui_Cursor.orig_pos;
-
     SK_ImGui_Cursor.LocalToScreen (lpPoint);
 
     return TRUE;
@@ -974,13 +987,11 @@ GetCursorPos_Detour (LPPOINT lpPoint)
     if (SK_ImGui_WantMouseCapture () || implicit_capture)
     {
       SK_Win32_Backend->markHidden (sk_win32_func::GetCursorPos);
-
-      *lpPoint = SK_ImGui_Cursor.orig_pos;
-
-      SK_ImGui_Cursor.LocalToScreen (lpPoint);
-
-      return TRUE;
     }
+
+    *lpPoint = s_GameSetCursorPos;
+
+    return TRUE;
   }
 
 
@@ -995,6 +1006,9 @@ GetCursorPos_Detour (LPPOINT lpPoint)
 
     SK_ImGui_Cursor.ScreenToLocal (&pos);
     SK_ImGui_Cursor.pos           = pos;
+    SK_ImGui_Cursor.orig_pos      = pos;
+
+    s_GameSetCursorPos = *lpPoint;
   }
 
 
@@ -1104,10 +1118,7 @@ SetCursorPos_Detour (_In_ int x, _In_ int y)
 {
   SK_LOG_FIRST_CALL
 
-  // Game WANTED to change its position, so remember that.
-  POINT                           pt { x, y };
-  SK_ImGui_Cursor.ScreenToLocal (&pt);
-  SK_ImGui_Cursor.orig_pos =      pt;
+  s_GameSetCursorPos = { x, y };
 
   // Don't let the game continue moving the cursor while
   //   Alt+Tabbed out
@@ -1120,9 +1131,14 @@ SetCursorPos_Detour (_In_ int x, _In_ int y)
   if (config.window.drag_lock)
     return TRUE;
 
-  if ( SK_ImGui_IsMouseRelevant () && ( SK_ImGui_Cursor.prefs.no_warp.ui_open/* && SK_ImGui_IsMouseRelevant   ()*/ ) ||
-                                      ( SK_ImGui_Cursor.prefs.no_warp.visible && SK_InputUtil_IsHWCursorVisible () )    )
+  if ( SK_ImGui_IsMouseRelevant () || (SK_ImGui_Cursor.prefs.no_warp.ui_open && SK_ImGui_Active ()) ||
+                                      (SK_ImGui_Cursor.prefs.no_warp.visible && SK_InputUtil_IsHWCursorVisible ()) )
   {
+    // Game WANTED to change its position, so remember that.
+    POINT                           pt { x, y };
+    SK_ImGui_Cursor.ScreenToLocal (&pt);
+    SK_ImGui_Cursor.orig_pos =      pt;
+
     //game_mouselook = SK_GetFramesDrawn ();
   }
 
@@ -1169,7 +1185,7 @@ SK_Window_IsCursorActive (void)
 }
 
 bool
-SK_Window_ActivateCursor (bool changed = false)
+SK_Window_ActivateCursor (bool changed)
 {
   const bool was_active = last_mouse.cursor;
 
@@ -1177,7 +1193,7 @@ SK_Window_ActivateCursor (bool changed = false)
   {
     if ((! SK_IsSteamOverlayActive ()))
     {
-      if (config.input.ui.use_hw_cursor)
+      if (SK_ImGui_WantHWCursor ())
       {
         SK_SendMsgShowCursor (TRUE);
 

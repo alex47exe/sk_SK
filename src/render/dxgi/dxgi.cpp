@@ -5351,9 +5351,7 @@ SK_DXGI_CreateSwapChain_PreInit (
         if ( config.render.framerate.flip_discard &&
                    dxgi_caps.present.flip_discard )
         {
-          if (bHasReShade)
-            pDesc->SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-          else
+
             pDesc->SwapEffect = 
               (original_swap_effect == DXGI_SWAP_EFFECT_DISCARD ||
                original_swap_effect == DXGI_SWAP_EFFECT_FLIP_DISCARD) ?
@@ -5380,16 +5378,8 @@ SK_DXGI_CreateSwapChain_PreInit (
     }
 
     // Option to force Flip Sequential for buggy systems
-    if (pDesc->SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD && (config.render.framerate.flip_sequential || bHasReShade))
+    if (pDesc->SwapEffect == DXGI_SWAP_EFFECT_FLIP_DISCARD && config.render.framerate.flip_sequential)
         pDesc->SwapEffect  = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
-
-    if ( bHasReShade &&
-            pDesc->SwapEffect == DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL &&
-         original_swap_effect != DXGI_SWAP_EFFECT_SEQUENTIAL      &&
-         original_swap_effect != DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL )
-    {
-      SK_LOGi0 (L"  >> Using DXGI Flip Sequential for compatibility with ReShade");
-    }
 
     SK_LOGs1 ( L" DXGI 1.2 ",
                L"  >> Using %s Presentation Model  [Waitable: %s - %li ms]",
@@ -6754,7 +6744,7 @@ SK_AMD_CheckForOpenGLInterop (LPCVOID lpReturnAddr, HWND& hWnd)
   bool bAMDInteropOpenGL =
     (StrStrIW (SK_GetCallerName (lpReturnAddr).c_str (), L"amdxc"));
   if ( bAMDInteropOpenGL &&  config.apis.OpenGL.hook == true &&
-                    SK_IsModuleLoaded (L"OpenGL32.dll") )
+                    SK_IsModuleLoaded (L"OpenGL32.dll") && !SK_IsModuleLoaded (L"EOSOVH-Win64-Shipping.dll") )
   {
     // Search for common Vulkan layers, if they are loaded, then assume
     //   the game is actually using Vulkan rather than OpenGL.
@@ -7039,6 +7029,9 @@ _In_opt_       IDXGIOutput                     *pRestrictToOutput,
 
   if ( ret == E_ACCESSDENIED )
   {
+    if (config.compatibility.disable_dx12_vk_interop && pCmdQueue.p != nullptr)
+      return E_NOTIMPL;
+
     if (config.system.log_level > 0)
       SK_ReleaseAssert (hWnd == rb.windows.getDevice ());
 
@@ -7055,9 +7048,6 @@ _In_opt_       IDXGIOutput                     *pRestrictToOutput,
     rb.d3d11.clearState ();
 
     rb.releaseOwnedResources ();
-
-    if (config.compatibility.disable_dx12_vk_interop && pCmdQueue.p != nullptr)
-      return E_NOTIMPL;
 
     ret =
       CreateSwapChainForHwnd_Original ( This, pDevice, hWnd, pDesc, pFullscreenDesc,
@@ -8719,17 +8709,14 @@ IDXGISwapChain3_CheckColorSpaceSupport_Override (
   if (pColorSpaceSupported == nullptr)
     return DXGI_ERROR_INVALID_CALL;
 
-  // NVIDIA will fallback to a D3D11 SwapChain for interop if we tell it that
-  //   G22_NONE_P709 is unsupported.
+  // NVIDIA will fallback to a D3D11 SwapChain for interop if we tell it that a colorspace is unsupported.
   if (config.compatibility.disable_dx12_vk_interop || StrStrIW (SK_GetCallerName ().c_str (), L"nvoglv") || StrStrIW (SK_GetCallerName ().c_str (), L"vulkan-1"))
   {   config.compatibility.disable_dx12_vk_interop = true; // Set this so it will trigger even if called by something wrapping the SwapChain
-    if (ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709)
+    SK_ComPtr <ID3D11Device> pDevice11;
+    if (FAILED (This->GetDevice (IID_ID3D11Device, (void **)&pDevice11.p)))
     {
-      if (SK_GetCallingDLL () != SK_GetDLL ())
-      {
-        *pColorSpaceSupported = 0x0;
-        return S_OK;
-      }
+      *pColorSpaceSupported = 0x0;
+      return S_OK;
     }
   }
 
@@ -9888,8 +9875,8 @@ HookDXGI (LPVOID user)
 
         //// Favor this codepath because it bypasses many things like ReShade, but
         ////   it's necessary to skip this path if NVIDIA's Vk/DXGI interop layer is active
-        if (D3D11CoreCreateDevice != nullptr && (! ( SK_GetModuleHandle (L"vulkan-1.dll") ||
-                                                     SK_GetModuleHandle (L"OpenGL32.dll") ) )) 
+        if (D3D11CoreCreateDevice != nullptr && (! ( SK_IsModuleLoaded (L"vulkan-1.dll") ||
+                                                    (SK_IsModuleLoaded (L"OpenGL32.dll") && !SK_IsModuleLoaded ((L"EOSOVH-Win64-Shipping.dll"))))))
         {
           hr =
             D3D11CoreCreateDevice (

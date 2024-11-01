@@ -494,11 +494,9 @@ SetThreadExecutionState_Detour (EXECUTION_STATE esFlags)
 
   // SK has smarter control over this stuff, prevent games from using this...
   //   reset any continuous state so we can micromanage screensaver activation
-  if (config.window.disable_screensaver || config.window.fullscreen_no_saver)
+  if (config.window.manage_screensaver)
   {
-    //SetThreadExecutionState_Original (0x0);
-
-    return 0x0;//esFlags;
+    return 0x0;
   }
 
   return
@@ -544,6 +542,7 @@ void SK_Input_PreInit (void)
     //   and allow it to run even when the game window is not foreground.
     SK_SDL_SetDefaultBehavior ("SDL_JOYSTICK_THREAD",                  "1");
     SK_SDL_SetDefaultBehavior ("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
+    SK_SDL_SetDefaultBehavior ("SDL_MOUSE_FOCUS_CLICKTHROUGH",         "1");
 
     // Disable bad window management behavior so that SK can take full control
     SK_SDL_SetDefaultBehavior ("SDL_HINT_FORCE_RAISEWINDOW",       "0");

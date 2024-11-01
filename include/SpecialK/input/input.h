@@ -44,6 +44,7 @@ extern int64_t       SK_PerfFreq;
 #define SK_LOG_INPUT_CALL { static int  calls  = 0; { SK_LOG0 ( (L"[!] > Call #%lu: %hs", calls++, __FUNCTION__), L"Input Mgr." ); } }
 
 bool SK_ImGui_WantGamepadCapture  (void);
+bool SK_ImGui_WantHWCursor        (void);
 bool SK_ImGui_WantMouseCapture    (void);
 bool SK_ImGui_WantMouseCaptureEx  (DWORD dwReasonMask = 0xFFFF);
 bool SK_ImGui_WantKeyboardCapture (void);
@@ -116,9 +117,10 @@ struct sk_imgui_cursor_s
   POINT   pos           =       { 0, 0 };
 
   bool    visible       =          false;
-  bool    idle          =          false; // Hasn't moved
+  bool    idle          =           true; // Hasn't moved
   DWORD   last_move     =       MAXDWORD;
   DWORD   refs_added    =              0;
+  DWORD64 times_set     =              0; // Times the game has set a non-zero cursor
 
   sk_cursor_state force = sk_cursor_state::None;
 
@@ -138,7 +140,7 @@ struct sk_imgui_cursor_s
     struct {
       bool visible = false;
       bool gamepad = false; // TODO - Disable warping if gamepad is plugged in
-      bool ui_open = true;
+      bool ui_open = false; // Off by default (10/30/24), and pending removal
     } no_warp;
   } prefs;
 };

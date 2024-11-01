@@ -1102,6 +1102,7 @@ struct {
     sk::ParameterInt*     disabled_to_game        = nullptr;
     sk::ParameterBool*    bt_input_only           = nullptr;
     sk::ParameterFloat*   low_battery_warning     = nullptr;
+    sk::ParameterBool*    blocks_screensaver      = nullptr;
   } gamepad;
 } input;
 
@@ -1133,6 +1134,7 @@ struct {
   sk::ParameterStringW*   preferred_monitor_exact = nullptr;
   sk::ParameterBool*      disable_screensaver     = nullptr;
   sk::ParameterBool*      fullscreen_no_saver     = nullptr;
+  sk::ParameterBool*      manage_screensaver      = nullptr;
   sk::ParameterBool*      dont_hook_wndproc       = nullptr;
   sk::ParameterBool*      activate_at_start       = nullptr;
   sk::ParameterBool*      treat_fg_as_active      = nullptr;
@@ -1673,6 +1675,7 @@ auto DeclKeybind =
     ConfigEntry (input.gamepad.hook_dinput7,             L"Install hooks for DirectInput 7",                           dll_ini,         L"Input.Gamepad",         L"EnableDirectInput7"),
     ConfigEntry (input.gamepad.hook_hid,                 L"Install hooks for HID",                                     dll_ini,         L"Input.Gamepad",         L"EnableHID"),
     ConfigEntry (input.gamepad.disable_rumble,           L"Disable Rumble from ALL SOURCES (across all APIs)",         dll_ini,         L"Input.Gamepad",         L"DisableRumble"),
+    ConfigEntry (input.gamepad.blocks_screensaver,       L"Gamepad activity will block screensaver activation",        dll_ini,         L"Input.Gamepad",         L"BlocksScreenSaver"),
     ConfigEntry (input.gamepad.bt_input_only,            L"Prevent Bluetooth Output (PlayStation DirectInput compat.)",dll_ini,         L"Input.Gamepad",         L"BluetoothInputOnly"),
     ConfigEntry (input.gamepad.hid.max_allowed_buffers,  L"Maximum allowed HID buffers; 32=NS default, 8=SK default,"
                                                          L" this will lower latency at the expense of possibly missed"
@@ -1749,6 +1752,7 @@ auto DeclKeybind =
     ConfigEntry (window.always_on_top,                   L"Prevent (0) or Force (1) a game's window Always-On-Top",    dll_ini,         L"Window.System",         L"AlwaysOnTop"),
     ConfigEntry (window.disable_screensaver,             L"Prevent the Windows Screensaver from activating",           dll_ini,         L"Window.System",         L"DisableScreensaver"),
     ConfigEntry (window.fullscreen_no_saver,             L"Prevent the Windows Screensaver in (Borderless) Fullscreen",dll_ini,         L"Window.System",         L"DisableFullscreenSaver"),
+    ConfigEntry (window.manage_screensaver,              L"Allow Screensaver to work, by Disabling any Game Overrides",dll_ini,         L"Window.System",         L"FullyManageScreenSaver"),
     ConfigEntry (window.preferred_monitor_id,            L"GDI Monitor ID of Preferred Monitor",                       dll_ini,         L"Window.System",         L"PreferredMonitor"),
     ConfigEntry (window.preferred_monitor_exact,         L"CCD Display Path (invariant) of Preferred Monitor",         dll_ini,         L"Window.System",         L"PreferredMonitorExact"),
     ConfigEntry (window.dont_hook_wndproc,               L"Disable WndProc / ClassProc hooks (wrap instead of hook)",  dll_ini,         L"Window.System",         L"DontHookWndProc"),
@@ -3726,19 +3730,12 @@ auto DeclKeybind =
 
       case SK_GAME_ID::Metaphor:
         config.compatibility.init_on_separate_thread   = false;
+        config.window.fullscreen_no_saver              = true;
+        config.input.ui.capture_hidden                 = true;
         config.input.keyboard.override_alt_f4          = true; // Oh lord, kill that buggy exit confirmation
-        config.render.dxgi.fake_fullscreen_mode        = true;
-        config.window.always_on_top                    = SmartAlwaysOnTop;
-        config.window.borderless                       = true;
-        config.window.fullscreen                       = true;
-        config.display.force_windowed                  = true;
         config.render.framerate.sleepless_render       = false;
         config.render.framerate.sleepless_window       = false;
         config.input.gamepad.xinput.emulate            = true; // XInput-only
-        config.input.gamepad.xinput.disable [1]        = true;
-        config.input.gamepad.xinput.disable [2]        = true;
-        config.input.gamepad.xinput.disable [3]        = true;
-        config.priority.perf_cores_only                = true;
         config.render.hdr.remaster_8bpc_as_unorm       = true;
         config.render.hdr.remaster_subnative_as_unorm  = true;
         config.input.gamepad.dinput.block_enum_devices = true; // Avoid perf issues
@@ -3933,6 +3930,14 @@ auto DeclKeybind =
       {
         // Requires synchronous init or the game will get GDI Copy
         config.compatibility.init_on_separate_thread = false;
+      } break;
+
+      case SK_GAME_ID::Transistor:
+      {
+        config.apis.Vulkan.translate = 1; // Bridge it
+        config.apis.OpenGL.hook      = false;
+        config.apis.dxgi.d3d11.hook  = true;
+        config.apis.dxgi.d3d12.hook  = true;
       } break;
     }
   }
@@ -4639,6 +4644,9 @@ auto DeclKeybind =
   input.cursor.fix_synaptics->load       (config.input.mouse.fix_synaptics);
   input.cursor.antiwarp_deadzone->load   (config.input.mouse.antiwarp_deadzone);
 
+  // Deprecated, pending removal
+  SK_ImGui_Cursor.prefs.no_warp.ui_open = false;
+
   input.gamepad.disabled_to_game->load   (config.input.gamepad.disabled_to_game);
   input.gamepad.disable_hid->load        (config.input.gamepad.disable_hid);
   input.gamepad.disable_winmm->load      (config.input.gamepad.disable_winmm);
@@ -4677,6 +4685,7 @@ auto DeclKeybind =
   input.gamepad.hid.max_allowed_buffers->load  (config.input.gamepad.hid.max_allowed_buffers);
   input.gamepad.bt_input_only->load            (config.input.gamepad.bt_input_only);
   input.gamepad.disable_rumble->load           (config.input.gamepad.disable_rumble);
+  input.gamepad.blocks_screensaver->load       (config.input.gamepad.blocks_screensaver);
   input.gamepad.xinput.hook_setstate->load     (config.input.gamepad.xinput.hook_setstate);
   input.gamepad.xinput.auto_slot_assign->load  (config.input.gamepad.xinput.auto_slot_assign);
   input.gamepad.xinput.blackout_api->load      (config.input.gamepad.xinput.blackout_api);
@@ -4839,6 +4848,7 @@ auto DeclKeybind =
   window.always_on_top->load       (config.window.always_on_top);
   window.disable_screensaver->load (config.window.disable_screensaver);
   window.fullscreen_no_saver->load (config.window.fullscreen_no_saver);
+  window.manage_screensaver->load  (config.window.manage_screensaver);
   window.dont_hook_wndproc->load   (config.window.dont_hook_wndproc);
   window.activate_at_start->load   (config.window.activate_at_start);
   window.treat_fg_as_active->load  (config.window.treat_fg_as_active);
@@ -6169,6 +6179,7 @@ SK_SaveConfig ( std::wstring name,
   input.gamepad.hid.max_allowed_buffers->store     (config.input.gamepad.hid.max_allowed_buffers);
   input.gamepad.bt_input_only->store               (config.input.gamepad.bt_input_only);
   input.gamepad.disable_rumble->store              (config.input.gamepad.disable_rumble);
+  input.gamepad.blocks_screensaver->store          (config.input.gamepad.blocks_screensaver);
   input.gamepad.xinput.hook_setstate->store        (config.input.gamepad.xinput.hook_setstate);
   input.gamepad.xinput.auto_slot_assign->store     (config.input.gamepad.xinput.auto_slot_assign);
   input.gamepad.xinput.blackout_api->store         (config.input.gamepad.xinput.blackout_api);
@@ -6253,6 +6264,7 @@ SK_SaveConfig ( std::wstring name,
   window.always_on_top->store                 (config.window.always_on_top);
   window.disable_screensaver->store           (config.window.disable_screensaver);
   window.fullscreen_no_saver->store           (config.window.fullscreen_no_saver);
+  window.manage_screensaver->store            (config.window.manage_screensaver);
   window.dont_hook_wndproc->store             (config.window.dont_hook_wndproc);
   window.activate_at_start->store             (config.window.activate_at_start);
   window.treat_fg_as_active->store            (config.window.treat_fg_as_active);

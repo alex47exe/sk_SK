@@ -1,4 +1,117 @@
-﻿24.10.28.2
+﻿34.10.31.4
+==========
+ + Stop hooking OpenGL32.dll whenever gdi32.dll or gdi32full.dll are
+     loaded, but OpenGL32.dll isn't.
+ + Ignore OpenGL32.dll if the Epic Overlay's DLL was loaded before
+     OpenGL32.dll was.
+
+24.10.31.3
+==========
+ + Revert late stage re-initialization of D3D11, it was a bad idea.
+
+24.10.31.2
+==========
+ + Add new fallback for WMAITX support testing on CPUs with CPUIDs that
+     claim the instruction is unsupported... just run the instruction and
+       see if it generates and Illegal Instruction exception or not, lol.
+
+24.10.31.1
+==========
+ + Fixed changes to SK_WindowManager::StyleHasBorder (...) in 24.10.24.4
+     that were causing added window borders to Baldur's Gate 3 when set to
+       Borderless in-game.
+ + Allow late stage re-initialization of D3D11 during SwapChain presentation,
+     rather than when a new SwapChain is created (Vulkan interop).
+ + Disable Windows+Down/Up in Vulkan games.
+
+24.10.31
+========
+ + Do not invoke SK_SetupDiGetClassDevsExW (...), from
+     SK_RBkEnd_UpdateMonitorName (...), because during late injection,
+       the SK_SetupDiGetClassDevsExW function pointer may not be setup yet.
+ + Properly re-use NVIDIA Vulkan interop D3D11 device singleton, instead
+     of permanently losing overlay capabilities when games change resolution.
+ + Increase thread priority on SteamAPI delayed it and DLL enumerator threads
+ + Revert to 24.10.26 initialization order in core.cpp
+
+24.10.30.2
+==========
+ + Allow Multitasking-on-Top to be used without Global Injection service,
+     but turn off certain functionality that cannot work reliably without.
+ + Improved thread-safety of (LowLevel) Keyboard/Mouse Hook Proxy code.
+ + Handle window position changes that occur without showing up a game's
+     window message queue.
+ + Cleanup various RawInput handling code.
+
+24.10.30.1
+==========
+ + Prevent PH3 games from causing Fullscreen mode changes through use of
+     ChangeDisplaySettings (...) API with unchanged parameters, even
+       when configured for "Borderless" or "Windowed" modes. (ugh!)
+ + Change compiler optimization settings to try and resolve Steam Overlay
+     problems (again).
+
+24.10.30
+========
+ + Improved/made obsolete mouse anti-warp for games that move their cursor
+     to the center of the screen to implement mouselook (stupid devs...).
+ + Multitasking-on-Top mode now causes Special K's injection service to
+     continue running until the game exits, because otherwise the feature
+       is unusable and cannot track when focus changes to other apps.
+
+24.10.29.4
+==========
+ + Add exception code for Non-SEH exceptions caught by the crash handler
+
+24.10.29.3
+==========
+ + Remove QueryInterface call on D3D11 Device Context during texture upload,
+     it angers the D3D11 debug layer if this happens on multiple threads.
+ + Remove old compatibility hack for ReShade that was changing Flip Model
+     SwapChains to Flip Sequential. ReShade works with Flip Discard now.
+
+24.10.29.2
+==========
+ + Added option block screensaver activation on controller input (default)
+ + Added option to have Special K disable all game handling of screensavers,
+     and fully manage it based on its own configurable rules.
+
+    >> Without this option, SK adds additional blocking rules, but respects
+         the game's own attempts to block screensaver activation.
+
+    * Many games unconditionally block screensaver, and you may not want
+        that behavior if you have alt-tab to work a different application
+          and then go AFK while the game continues running.
+
+24.10.29.1
+==========
+ + Changed screensaver activation prevention to use the Windows-defined timeout
+     interval and factor in gamepad input, since Windows only uses KB&M.
+  + Added a message when the system screensaver activates explaining how to
+     configure screensaver prevention.
+ + Default screensaver policy has been changed to "Game Default".
+ + Gamepad input will now deactivate screensavers.
+
+24.10.29
+========
+ + Fixed crash.log being created in the game's working directory when local
+     injection is used together with the virtual SpecialK.central file.
+ + Fixed multi-threaded race condition in BlacklistLibrary (...)'s init. and
+     SK_EstablishRootPath (...).
+
+24.10.28.4
+==========
+ + Remove unintended cursor deactivation introduced in 24.10.28.3
+
+24.10.28.3
+==========
+ + Disable SK's Hardware Cursor when game cursor auto-hide is enabled, so that
+     mouse warping done by game mouselook does not cause the cursor to become
+       visible.
+ + Block mouse input while the control panel is open in Metaphor, otherwise
+     the camera will just spin endlessly if the cursor moves out of it.
+
+24.10.28.2
 ==========
  + Always use the fully qualified path when looking up NVIDIA driver profiles
      for the current game in order to avoid creating duplicates.
@@ -7,7 +120,6 @@
  + Query D3D11 device context type when wrapping it, and then use that rather
      than calling ID3D11DeviceContext::GetType(...) because the D3D debug layer
        will abort if GetType is called from multiple threads.
- + 
 
 24.10.28.1
 ==========
